@@ -82,7 +82,7 @@ void AddData(unsigned char DataValue)
  
     if((IndexData==0)&&DataValue==0x54) {/*printf("[");*/return;} //Skip SYNC BYTE
     if((IndexData==0)&&DataValue==0xC3) {/*printf("_");*/return;} //Skip 2SYNC BYTE 
-    BufferData[IndexData++]=DataValue;
+    BufferData[IndexData++]=DataValue^0xFF;
     //printf("%x",DataValue);
 }
 
@@ -91,11 +91,13 @@ void AddData(unsigned char DataValue)
 
 void CheckCRC()
 {
-    printf("\n Raw : ");
+   
     enum {ACK=0b010,CON=0b100,PDM=0b101,POD=0b111};    
+    /*    
+     printf("\n Raw : ");
     for(int i=0;i<IndexData;i++) printf("%x",BufferData[i]);
     printf("\n");
-    
+    */
     if(IndexData<10) return;
     printf("ID1:%x%x%x%x",BufferData[0],BufferData[1],BufferData[2],BufferData[3]);
     printf(" PTYPE:");
@@ -121,15 +123,16 @@ void CheckCRC()
         printf(" BLEN:%d",MessageLen);
 
         printf(" BODY:");
-        for(int i=11;i<MessageLen-1;i++)
+        for(int i=11;i<11+MessageLen-1;i++)
         printf("%x",BufferData[i]);
     
-        printf("CRC:%x",BufferData[MessageLen-1]);
+        printf(" CRC:%x",BufferData[11+MessageLen-1]);
+        if(crc_check_key(LIQUID_CRC_8,BufferData,IndexData)) printf("-CRC OK\n"); else printf("-BAD CRC\n");
         printf("\n");
     }
     else
     {
-         printf("CRC:%x",BufferData[9]);
+         printf(" CRC:%x",BufferData[9]);
     }
     if(PacketType==CON)
     {
@@ -172,7 +175,7 @@ int main(int argc, char*argv[])
     float FreqUp= 325000.0+5000;
     unsigned int m           =   1;     // number of bits/symbol
     unsigned int k           =   IQSR/40625;     // filter samples/symbol -> Baudrate
-    printf("k= %d\n",k);  
+  
     float        bandwidth   = FSKDeviationHz*2/IQSR;    // frequency spacing : RTLSDR SR shoulde be 256K. Spacing is 26.37KHZ 
     unsigned int nfft        = 1200;    // FFT size for compute spectrum
     uint8_t iq_buffer[k*2]; // 1Byte I, 1Byte Q
@@ -212,7 +215,7 @@ int main(int argc, char*argv[])
     
 
     fskdem dem = fskdem_create(m,k/4,bandwidth*4.0/2.0); // k/4,bandwidth*4.0/2.0 semble correct % Demod FM
-    fskdem_print(dem);
+    //fskdem_print(dem);
     nco_crcf MyNCO = nco_crcf_create(LIQUID_NCO);
      nco_crcf_set_phase(MyNCO, 0.0f);
     nco_crcf_set_frequency(MyNCO, 2.0*M_PI*FreqUp/IQSR); // Tuning frequency is SR/4 away : here 256/4=64KHZ : 433923+64=433987
