@@ -1,10 +1,27 @@
-// 
-// fskmodem_example.c
-//
-// This example demostrates the M-ary frequency-shift keying
-// (MFSK) modem in liquid. A message signal is modulated and the
-// resulting signal is recovered using a demodulator object.
-//
+/* Created by Evariste Courjaud F5OEO. Code is GPL
+rtlomni is a software to sniff RF packets using a RTLSDR dongle in order to analysis Omnipod protocol.
+
+Credits :
+
+This work is mainly based on https://github.com/ps2/omnipod_rf
+
+Hope this could help https://github.com/openaps/openomni
+
+SDR demodulation and signal processing is based on excellent https://github.com/jgaeddert/liquid-dsp/
+
+Licence : 
+	
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
