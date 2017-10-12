@@ -41,7 +41,7 @@ int ManchesterAdd(int BitValue)
     if(prev==-1) { prev=BitValue; return -1;};
     if((prev==0) && (BitValue==1)) {bitDecoded=0;prev=-1;}
     if((prev==1) && (BitValue==0)) {bitDecoded=1;prev=-1;}
-    if(prev==BitValue) {printf("!");prev=-1;return -2;}
+    if(prev==BitValue) {/*printf("!");*/prev=-1;return -2;}
     if(bitDecoded>=0)
     {
         //printf(" M%d ",bitDecoded);
@@ -57,7 +57,7 @@ int ManchesterAdd(int BitValue)
         {
             IndexInByte=0;
             FinalByteValue=(DecodedByte)&0xFF;
-            printf(".");    
+            //printf(".");    
            //printf("->%x\n",FinalByteValue);
             DecodedByte=0;
         }
@@ -80,45 +80,66 @@ void AddData(unsigned char DataValue)
 {
    
  
-    if((IndexData==0)&&DataValue==0x54) {printf("[");return;} //Skip SYNC BYTE
-    if((IndexData==0)&&DataValue==0xC3) {printf("_");return;} //Skip 2SYNC BYTE 
+    if((IndexData==0)&&DataValue==0x54) {/*printf("[");*/return;} //Skip SYNC BYTE
+    if((IndexData==0)&&DataValue==0xC3) {/*printf("_");*/return;} //Skip 2SYNC BYTE 
     BufferData[IndexData++]=DataValue;
     //printf("%x",DataValue);
 }
 
+
+
+
 void CheckCRC()
 {
     printf("\n Raw : ");
+    enum {ACK=0b010,CON=0b100,PDM=0b101,POD=0b111};    
     for(int i=0;i<IndexData;i++) printf("%x",BufferData[i]);
     printf("\n");
     
-    if(IndexData<12) return;
+    if(IndexData<10) return;
     printf("ID1:%x%x%x%x",BufferData[0],BufferData[1],BufferData[2],BufferData[3]);
     printf(" PTYPE:");
-    switch(BufferData[4]>>5)
+    int PacketType=BufferData[4]>>5;
+    switch(PacketType)
     {
-        case 5:printf("PDM");break;
-        case 7:printf("POD");break;
-        case 2:printf("ACK");break;
-        case 4:printf("CON");break;
+        case PDM:printf("PDM");break;
+        case POD:printf("POD");break;
+        case ACK:printf("ACK");break;
+        case CON:printf("CON");break;
         default:printf("UNKOWN");break;         
     }
     printf(" SEQ:%d",BufferData[4]&0x1F);
-    printf(" ID2:%x%x%x%x",BufferData[5],BufferData[6],BufferData[7],BufferData[8]);
-    printf(" B9:%x",BufferData[9]);
-    int MessageLen=(BufferData[10]>>4)+2;
-    printf(" BLEN:%d",MessageLen);
-
-    printf(" BODY:");
-    for(int i=11;i<MessageLen-1;i++)
-    printf("%x",BufferData[i]);
     
-    printf("CRC:%x",BufferData[MessageLen-1]);
-    printf("\n");
-    printf("Len should be %d : here %d\n",MessageLen,IndexData);
-    //crc_append_key(check, data, n);    
-    //BufferData[0]=0;
-    if(crc_check_key(LIQUID_CRC_8,BufferData,MessageLen-1)) printf("CRC OK\n"); else printf("BAD CRC\n");
+    if(PacketType!=CON)
+    {
+        printf(" ID2:%x%x%x%x",BufferData[5],BufferData[6],BufferData[7],BufferData[8]);
+    }
+    if((PacketType!=CON)&&(PacketType!=ACK)&&IndexData>11)
+    {
+        printf(" B9:%x",BufferData[9]);
+        int MessageLen=(BufferData[10]>>4)+2;
+        printf(" BLEN:%d",MessageLen);
+
+        printf(" BODY:");
+        for(int i=11;i<MessageLen-1;i++)
+        printf("%x",BufferData[i]);
+    
+        printf("CRC:%x",BufferData[MessageLen-1]);
+        printf("\n");
+    }
+    else
+    {
+         printf("CRC:%x",BufferData[9]);
+    }
+    if(PacketType==CON)
+    {
+        printf(" BODY:");
+        for(int i=5;i<IndexData-1;i++) printf("%x",BufferData[i]);
+        printf("CRC:%x",BufferData[IndexData-1]);
+    }
+    //printf("Len should be %d : here %d\n",MessageLen,IndexData);
+    
+    //if(crc_check_key(LIQUID_CRC_8,BufferData,MessageLen-1)) printf("CRC OK\n"); else printf("BAD CRC\n");
     
 }
 
@@ -136,7 +157,7 @@ int GetFSKSync(unsigned char Sym)
     int FSKCurrentStatus=FSK_SYNC_RUNNING;
     Buffer=((Buffer<<1)&0xFFFE)|Sym;
     //printf("%x\n",Buffer);
-    if(Buffer==0x6665) {printf("#");FSKCurrentStatus=FSK_SYNC_ON;}
+    if(Buffer==0x6665) {/*printf("#");*/FSKCurrentStatus=FSK_SYNC_ON;}
     //if((Buffer&0xF)==0xF) FSKCurrentStatus=FSK_SYNC_OFF;        
     
     return(FSKCurrentStatus);
@@ -162,7 +183,12 @@ int main(int argc, char*argv[])
     unsigned int M    = 1 << m;
 
      FILE* iqfile=NULL;
-    iqfile = fopen ("omniup325.cu8", "r");
+    if(argc==2)
+            iqfile = fopen (argv[1], "r");    
+    else    
+            iqfile = fopen ("omniup325.cu8", "r");
+    
+    
     //iqfile = fopen ("fifo.cu8", "r");
     if(iqfile==NULL) {printf("Missing input file\n");exit(0);}
 
