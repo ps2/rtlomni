@@ -162,7 +162,7 @@ int main(int argc, char*argv[])
     unsigned int M    = 1 << m;
 
      FILE* iqfile=NULL;
-    iqfile = fopen ("omniup325_1.cu8", "r");
+    iqfile = fopen ("omniup325.cu8", "r");
     //iqfile = fopen ("fifo.cu8", "r");
     if(iqfile==NULL) {printf("Missing input file\n");exit(0);}
 
