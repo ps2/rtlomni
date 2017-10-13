@@ -62,9 +62,14 @@ void AddProtocol(char *Message,int Source,int Seq)
      
 }
 
+//***************************************************************************************************
+//*********************************** SUB-MESSAGE LAYER ******************************************************
+//***************************************************************************************************
+ 
 
-
-
+//***************************************************************************************************
+//*********************************** MESSAGE LAYER ******************************************************
+//***************************************************************************************************
  
 
 
@@ -202,7 +207,7 @@ void ParsePacket(void)
 {
    
     
-        
+     int static ActualSEQ=-1;   
     /* printf("\nPACKET : ");
     for(int i=0;i<IndexData;i++) printf("%x",BufferData[i]);
     printf("\n");
@@ -229,8 +234,11 @@ void ParsePacket(void)
         case CON:printf("CON");break;
         default:printf("UNKOWN");break;         
     }
+
     printf(" SEQ:%d",BufferData[4]&0x1F);
-    
+    int Seq=BufferData[4]&0x1F;
+    int CRCOK=0;
+
     if(PacketType!=CON)
     {
         printf(" ID2:%02x%02x%02x%02x",BufferData[5],BufferData[6],BufferData[7],BufferData[8]);
@@ -250,7 +258,7 @@ void ParsePacket(void)
         //printf(" CRC16=%02x%02x/%04x",BufferData[11+MessageLen-2],BufferData[11+MessageLen-1],crc16(&BufferData[5],MessageLen-2+6));
         
         printf(" CRC:%02x/%02x",BufferData[11+MessageLen],crc_8(0x00,BufferData, MessageLen+12-1/*IndexData-1*/));
-        int CRCOK=(BufferData[11+MessageLen]==crc_8(0x00,BufferData, MessageLen+12-1/*IndexData-1*/));
+        CRCOK=(BufferData[11+MessageLen]==crc_8(0x00,BufferData, MessageLen+12-1/*IndexData-1*/));
         if(CRCOK)
         {
             if((BufferData[10]+2)==IndexData-12)
@@ -258,8 +266,6 @@ void ParsePacket(void)
             else
                 AddMessage(&BufferData[5],IndexData-5-1,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
         }
-//crc_generate_key(LIQUID_CRC_8,BufferData,IndexData-3));
-        //if(crc_check_key(LIQUID_CRC_8,BufferData,IndexData-1)) printf("-CRC OK\n"); else printf("-BAD CRC\n");
 
         printf("\n");
     }
@@ -280,10 +286,24 @@ void ParsePacket(void)
             AddMessage(&BufferData[5],IndexData-5-1,0);
         }
     }
-    //printf("Len should be %d : here %d\n",MessageLen,IndexData);
-    
-    //if(crc_check_key(LIQUID_CRC_8,BufferData,MessageLen-1)) printf("CRC OK\n"); else printf("BAD CRC\n");
-    
+
+
+
+    if(ActualSEQ==-1) 
+    {
+        ActualSEQ=Seq;
+    }
+    else
+    {
+        
+        if ((Seq==((ActualSEQ+2)%32))||(Seq==((ActualSEQ+1)%32))||(Seq==ActualSEQ)) // Normallu always +1 / equal id repetition / Could be +2 if Resync after a lost message
+        {}
+        else
+            printf("!---------------- MISS ONE PACKET ------------------\n");
+         ActualSEQ=Seq;
+    }    
+
+       
 }
 
 //***************************************************************************************************
