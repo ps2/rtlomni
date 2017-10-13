@@ -101,12 +101,15 @@ void AddData(unsigned char DataValue)
  
     if((IndexData==0)&&DataValue==0x54) {/*printf("[");*/return;} //Skip SYNC BYTE
     if((IndexData==0)&&DataValue==0xC3) {/*printf("_");*/return;} //Skip 2SYNC BYTE 
-    BufferData[IndexData++]=DataValue^0xFF;
+    if(IndexData<255)
+        BufferData[IndexData++]=DataValue^0xFF;
+    else
+        printf("Packet too long !!!\n");
     //printf("%x",DataValue);
 }
 
 
-inline int min ( int a, int b ) { return a < b ? a : b; }
+int min( int a, int b ) { return a < b ? a : b; }
 
 /**
  * \file
@@ -199,21 +202,58 @@ unsigned int crc16(unsigned char *data,int len)
     return acc;
 }
 
-void CheckCRC()
+
+void AddMessage(unsigned char*Packet,int Length,int TargetMessageLength)
+{
+    static unsigned char Message[512];
+    static int IndexMessage=0;
+    static int MessageLength=0;
+    
+    if(TargetMessageLength!=0)
+    {
+         MessageLength=TargetMessageLength;
+         IndexMessage=0; // To avoid repetition packet   
+         
+    }
+    //printf("\nTargetMessage=%d Length=%d\n",MessageLength,IndexMessage+Length);
+   
+    for(int i=0;i<Length;i++)
+    {
+        Message[IndexMessage++]=Packet[i];
+    }
+
+    if((Length==0)||(IndexMessage==MessageLength)) 
+    {
+        printf("\n");
+        if(Length==0) printf("Incomplete ");
+        printf("Message :");
+        for(int i=0;i<IndexMessage;i++) printf("%02x",Message[i]);
+        printf(" CRC16=%02x%02x/%04x",Message[IndexMessage-2],Message[IndexMessage-1],crc16(&Message[0],MessageLength-2));
+        IndexMessage=0;
+    }
+        
+}
+
+void ParsePacket(void)
 {
    
     enum {ACK=0b010,CON=0b100,PDM=0b101,POD=0b111};    
         
-     printf("\nMSG : ");
+    /* printf("\nPACKET : ");
     for(int i=0;i<IndexData;i++) printf("%x",BufferData[i]);
     printf("\n");
-    
-    if(IndexData<10) 
+    */
+    printf("\n");
+    if(IndexData<4) return; 
+    if((IndexData<8)&&(IndexData>=4)) 
     {
         printf("\nUnknown packet : ");
         for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]);
+        printf("\n");
         return;
     }
+    printf("New packet with %d length : ",IndexData);   for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]); printf("\n");
+
     printf("ID1:%x%x%x%x",BufferData[0],BufferData[1],BufferData[2],BufferData[3]);
     printf(" PTYPE:");
     int PacketType=BufferData[4]>>5;
@@ -229,22 +269,31 @@ void CheckCRC()
     
     if(PacketType!=CON)
     {
-        printf(" ID2:%x%x%x%x",BufferData[5],BufferData[6],BufferData[7],BufferData[8]);
+        printf(" ID2:%02x%02x%02x%02x",BufferData[5],BufferData[6],BufferData[7],BufferData[8]);
     }
     
     if((PacketType!=CON)&&(PacketType!=ACK)&&IndexData>11)
     {
-        printf(" B9:%x",BufferData[9]);
+        printf(" B9:%02x",BufferData[9]);
         
         int MessageLen=min((BufferData[10]+2),IndexData-12); //+2 Because CRC16 added ? 
         
-        printf(" BLEN:%d/%d",(BufferData[10]),IndexData-12);
+        printf(" BLEN:%d/%d",(BufferData[10]+2),IndexData-12);
 
         printf(" BODY:");
         for(int i=11;i<(11+MessageLen);i++) printf("%02x",BufferData[i]);
         
-        printf(" CRC16=%02x%02x/%04x",BufferData[11+MessageLen-2],BufferData[11+MessageLen-1],crc16(&BufferData[5],MessageLen-2+6));
-        printf(" CRC:%x/%x",BufferData[11+MessageLen],crc_update(0x00,BufferData, IndexData-1));
+        //printf(" CRC16=%02x%02x/%04x",BufferData[11+MessageLen-2],BufferData[11+MessageLen-1],crc16(&BufferData[5],MessageLen-2+6));
+        
+        printf(" CRC:%02x/%02x",BufferData[11+MessageLen],crc_update(0x00,BufferData, MessageLen+12-1/*IndexData-1*/));
+        int CRCOK=(BufferData[11+MessageLen]==crc_update(0x00,BufferData, MessageLen+12-1/*IndexData-1*/));
+        if(CRCOK)
+        {
+            if((BufferData[10]+2)==IndexData-12)
+                AddMessage(&BufferData[5],IndexData-1-5,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
+            else
+                AddMessage(&BufferData[5],IndexData-5-1,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
+        }
 //crc_generate_key(LIQUID_CRC_8,BufferData,IndexData-3));
         //if(crc_check_key(LIQUID_CRC_8,BufferData,IndexData-1)) printf("-CRC OK\n"); else printf("-BAD CRC\n");
 
@@ -252,14 +301,20 @@ void CheckCRC()
     }
     else
     {
-         printf(" CRC:%x/%x\n",BufferData[IndexData-1],crc_update(0x00,BufferData, IndexData-1));
+        
+         printf(" CRC:%02x/%02x\n",BufferData[IndexData-1],crc_update(0x00,BufferData, IndexData-1));
     }
     if(PacketType==CON)
     {
         printf(" BODY:");
-        for(int i=5;i<IndexData-1;i++) printf("%x",BufferData[i]);
-        printf("CRC:%x/%x",BufferData[IndexData-1],crc_update(0x00,BufferData, IndexData-1));
+        for(int i=5;i<IndexData-1;i++) printf("%02x",BufferData[i]);
+        printf(" CRC:%02x/%02x",BufferData[IndexData-1],crc_update(0x00,BufferData, IndexData-1));
         printf("\n");
+        int CRCOK=(BufferData[IndexData-1]==crc_update(0x00,BufferData, IndexData-1));        
+        if(CRCOK)
+        {    
+            AddMessage(&BufferData[5],IndexData-5-1,0);
+        }
     }
     //printf("Len should be %d : here %d\n",MessageLen,IndexData);
     
@@ -307,19 +362,26 @@ int main(int argc, char*argv[])
     unsigned int M    = 1 << m;
 
      FILE* iqfile=NULL;
-    if(argc==2)
+     FILE *DebugIQ=NULL;
+    if(argc>=2)
             iqfile = fopen (argv[1], "r");    
     else    
             iqfile = fopen ("omniup325.cu8", "r");
-    
+    if(argc>=3)
+    {
+         if(atoi(argv[2])==1)
+        {
+         DebugIQ = fopen ("debug.cu8", "wb");
+         if(DebugIQ==NULL) {printf("Error opeing output file\n");exit(0);}
+        }
+     
+    }
+
     
     //iqfile = fopen ("fifo.cu8", "r");
     if(iqfile==NULL) {printf("Missing input file\n");exit(0);}
 
-    FILE *DebugIQ=NULL;
-    DebugIQ = fopen ("debug.cf32", "wb");
-    if(DebugIQ==NULL) {printf("Error opeing output file\n");exit(0);}
-
+   
    
  
       float complex buf_rx[k];
@@ -353,9 +415,10 @@ int main(int argc, char*argv[])
     {
            buf_rx[i] = 0; // Read fom I/Q file here
            bytes_read = fread(iq_buffer, 1, k*2, iqfile);
+            if((bytes_read>0)&&(DebugIQ!=NULL)) fwrite(iq_buffer,1,bytes_read,DebugIQ);
            if (bytes_read > 0)
            {
-
+                
                 //printf("Byte read=%d\n",bytes_read);
                 // convert i16 to f32
                 for (j=0, i=0; j<bytes_read; j+=2, i++) 
@@ -409,7 +472,7 @@ int main(int argc, char*argv[])
                         if(Manchester==-2)
                         {
                             //printf("\n Unlock \n");
-                            CheckCRC();
+                            ParsePacket();
                             FSKSyncStatus=0; // Error in Manchester 
                             IndexData=0;
                             ManchesterAdd(-1);
@@ -444,8 +507,8 @@ int main(int argc, char*argv[])
                             if(crc_check_key(LIQUID_CRC_8,Data,Data[5]>>4)) printf("CRC OK\n"); else printf("BAD CRC\n");
 */ 
     }
-    fclose(DebugIQ);
-    fclose(iqfile);
+    if(DebugIQ!=NULL) fclose(DebugIQ);
+    if(iqfile!=NULL) fclose(iqfile);
    
     return 0;
 }
