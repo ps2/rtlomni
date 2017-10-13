@@ -226,8 +226,8 @@ void AddMessage(unsigned char*Packet,int Length,int TargetMessageLength)
     {
         printf("\n");
         if(Length==0) printf("Incomplete ");
-        printf("Message :");
-        for(int i=0;i<IndexMessage;i++) printf("%02x",Message[i]);
+        printf("Body Message :");
+        for(int i=6;i<IndexMessage;i++) printf("%02x",Message[i]);
         printf(" CRC16=%02x%02x/%04x",Message[IndexMessage-2],Message[IndexMessage-1],crc16(&Message[0],MessageLength-2));
         IndexMessage=0;
     }
