@@ -62,28 +62,33 @@ FILE *DebugIQ=NULL;
 //***************************************************************************************************
 //*********************************** SUB-MESSAGE LAYER ******************************************************
 //***************************************************************************************************
-void ParseSubMessage(int Source,unsigned char *Message,int Length)
+void ParseSubMessage(int Seq,int Source,unsigned char *Message,int Length)
 {
     int i=0;
+    int nbsub=0;
     //printf("\nSUBMESSAGES:\n");
     while(i<Length)
     {
         if(Source==POD) printf("POD:"); else printf("PDM:");
-        printf("Type :%02x->",Message[i]);    
+        //printf("(%d:%d)\tCommand %02x->",Seq,nbsub,Message[i]);    
+        printf("%02x->",Message[i]);    
         int Type=Message[i++];
         unsigned char Submessage[255];
         //printf("%02x+",Message[i]);
         int SubLength=Message[i++];
        
-        
+        if(Type==0x1D) SubLength=Length; //Unlike other messages, the second byte holds data rather than the message length. The reason for this is unknown.
         for(int j=0;j<SubLength;j++)
         {    
            Submessage[j]=Message[i++];
            printf("%02x",Submessage[j]);
         }
+        nbsub++;
+ 
         printf("\n");        
 
     }
+    printf("-------------------------------------------\n");
     
 }
  
@@ -139,7 +144,7 @@ unsigned int crc16(unsigned char *data,int len)
 
 
 
-void AddMessage(int Source,unsigned char*Packet,int Length,int TargetMessageLength)
+void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMessageLength)
 {
     static unsigned char Message[512];
     static int IndexMessage=0;
@@ -175,7 +180,7 @@ void AddMessage(int Source,unsigned char*Packet,int Length,int TargetMessageLeng
         unsigned int CRCProcess=crc16(&Message[0],MessageLength-2);
         // printf(" CRC16=%04x/%04x",CRCRead,CRCProcess);
         if(CRCRead==CRCProcess) //CRC OK
-          ParseSubMessage(LastSource,&Message[6],IndexMessage-6-2);  
+          ParseSubMessage(Seq,LastSource,&Message[6],IndexMessage-6-2);  
 
 
 
@@ -297,12 +302,14 @@ void ParsePacket(void)
         CRCOK=(BufferData[11+MessageLen]==crc_8(0x00,BufferData, MessageLen+12-1/*IndexData-1*/));
         if(CRCOK)
         {
-            if((BufferData[10]+2)==IndexData-12)
-                AddMessage(Source,&BufferData[5],IndexData-1-5,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
-            else
-                AddMessage(Source,&BufferData[5],IndexData-5-1,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
+            if(ActualSEQ!=Seq)
+            {
+                if((BufferData[10]+2)==IndexData-12)
+                    AddMessage(Seq,Source,&BufferData[5],IndexData-1-5,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
+                else
+                    AddMessage(Seq,Source,&BufferData[5],IndexData-5-1,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
+            }
         }
-
         //printf("\n");
     }
     else
@@ -319,7 +326,11 @@ void ParsePacket(void)
         int CRCOK=(BufferData[IndexData-1]==crc_8(0x00,BufferData, IndexData-1));        
         if(CRCOK)
         {    
-            AddMessage(Source,&BufferData[5],IndexData-5-1,0);
+            if(ActualSEQ!=Seq)
+            {
+                AddMessage(Seq,Source,&BufferData[5],IndexData-5-1,0);
+            }
+            
         }
     }
 
