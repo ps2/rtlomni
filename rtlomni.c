@@ -48,6 +48,8 @@ Sync word: 0x54c3
 enum {Debug_FSK,Debug_Manchester,Debug_Packet,Debug_Message};
 enum {ACK=0b010,CON=0b100,PDM=0b101,POD=0b111};    
 
+int min( int a, int b ) { return a < b ? a : b; }
+
 int DebugLevel=Debug_Message;
 
 // RF Layer Global
@@ -56,15 +58,34 @@ int IndexData=0;
 FILE* iqfile=NULL;
 FILE *DebugIQ=NULL; 
 
-void AddProtocol(char *Message,int Source,int Seq)
-{
-    static int CurrentSeq=0;
-     
-}
 
 //***************************************************************************************************
 //*********************************** SUB-MESSAGE LAYER ******************************************************
 //***************************************************************************************************
+void ParseSubMessage(int Source,unsigned char *Message,int Length)
+{
+    int i=0;
+    //printf("\nSUBMESSAGES:\n");
+    while(i<Length)
+    {
+        if(Source==POD) printf("POD:"); else printf("PDM:");
+        printf("Type :%02x->",Message[i]);    
+        int Type=Message[i++];
+        unsigned char Submessage[255];
+        //printf("%02x+",Message[i]);
+        int SubLength=Message[i++];
+       
+        
+        for(int j=0;j<SubLength;j++)
+        {    
+           Submessage[j]=Message[i++];
+           printf("%02x",Submessage[j]);
+        }
+        printf("\n");        
+
+    }
+    
+}
  
 
 //***************************************************************************************************
@@ -118,11 +139,16 @@ unsigned int crc16(unsigned char *data,int len)
 
 
 
-void AddMessage(unsigned char*Packet,int Length,int TargetMessageLength)
+void AddMessage(int Source,unsigned char*Packet,int Length,int TargetMessageLength)
 {
     static unsigned char Message[512];
     static int IndexMessage=0;
     static int MessageLength=0;
+    static int LastSource=0;
+    if((Source==POD)||(Source==PDM))
+    {
+        LastSource=Source;
+    }
     
     if(TargetMessageLength!=0)
     {
@@ -139,12 +165,21 @@ void AddMessage(unsigned char*Packet,int Length,int TargetMessageLength)
 
     if((Length==0)||(IndexMessage==MessageLength)) 
     {
-        printf("\n");
+        
         if(Length==0) printf("Incomplete ");
-        printf("Body Message :");
-        for(int i=6;i<IndexMessage;i++) printf("%02x",Message[i]);
-        printf(" CRC16=%02x%02x/%04x",Message[IndexMessage-2],Message[IndexMessage-1],crc16(&Message[0],MessageLength-2));
-        IndexMessage=0;
+        //printf("Body Message :");
+        //for(int i=6;i<IndexMessage;i++) printf("%02x",Message[i]);
+        //printf(" CRC16=%02x%02x/%04x",Message[IndexMessage-2],Message[IndexMessage-1],crc16(&Message[0],MessageLength-2));
+        
+        unsigned int CRCRead=(Message[IndexMessage-2]*256)+Message[IndexMessage-1];
+        unsigned int CRCProcess=crc16(&Message[0],MessageLength-2);
+        // printf(" CRC16=%04x/%04x",CRCRead,CRCProcess);
+        if(CRCRead==CRCProcess) //CRC OK
+          ParseSubMessage(LastSource,&Message[6],IndexMessage-6-2);  
+
+
+
+         IndexMessage=0;
     }
         
 }
@@ -152,7 +187,7 @@ void AddMessage(unsigned char*Packet,int Length,int TargetMessageLength)
 //***************************************************************************************************
 //*********************************** PACKET LAYER ******************************************************
 //***************************************************************************************************
-int min( int a, int b ) { return a < b ? a : b; }
+
 
 /**
  * \file
@@ -212,7 +247,7 @@ void ParsePacket(void)
     for(int i=0;i<IndexData;i++) printf("%x",BufferData[i]);
     printf("\n");
     */
-    printf("\n");
+    
     if(IndexData<4) return; 
     if((IndexData<8)&&(IndexData>=4)) 
     {
@@ -223,9 +258,10 @@ void ParsePacket(void)
     }
     //printf("New packet with %d length : ",IndexData);   for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]); printf("\n");
 
-    printf("ID1:%x%x%x%x",BufferData[0],BufferData[1],BufferData[2],BufferData[3]);
-    printf(" PTYPE:");
+    //printf("ID1:%x%x%x%x",BufferData[0],BufferData[1],BufferData[2],BufferData[3]);
+    //printf(" PTYPE:");
     int PacketType=BufferData[4]>>5;
+/*
     switch(PacketType)
     {
         case PDM:printf("PDM");break;
@@ -234,56 +270,56 @@ void ParsePacket(void)
         case CON:printf("CON");break;
         default:printf("UNKOWN");break;         
     }
-
-    printf(" SEQ:%d",BufferData[4]&0x1F);
+*/
+    int Source=PacketType;
+    //printf(" SEQ:%d",BufferData[4]&0x1F);
     int Seq=BufferData[4]&0x1F;
     int CRCOK=0;
 
     if(PacketType!=CON)
     {
-        printf(" ID2:%02x%02x%02x%02x",BufferData[5],BufferData[6],BufferData[7],BufferData[8]);
+        //printf(" ID2:%02x%02x%02x%02x",BufferData[5],BufferData[6],BufferData[7],BufferData[8]);
     }
     
     if((PacketType!=CON)&&(PacketType!=ACK)&&IndexData>11)
     {
-        printf(" B9:%02x",BufferData[9]);
+        //printf(" B9:%02x",BufferData[9]);
         
         int MessageLen=min((BufferData[10]+2),IndexData-12); //+2 Because CRC16 added ? 
         
-        printf(" BLEN:%d/%d",(BufferData[10]+2),IndexData-12);
+        //printf(" BLEN:%d/%d",(BufferData[10]+2),IndexData-12);
 
-        printf(" BODY:");
-        for(int i=11;i<(11+MessageLen);i++) printf("%02x",BufferData[i]);
+        //printf(" BODY:");
+        //for(int i=11;i<(11+MessageLen);i++) printf("%02x",BufferData[i]);
+          
         
-        //printf(" CRC16=%02x%02x/%04x",BufferData[11+MessageLen-2],BufferData[11+MessageLen-1],crc16(&BufferData[5],MessageLen-2+6));
-        
-        printf(" CRC:%02x/%02x",BufferData[11+MessageLen],crc_8(0x00,BufferData, MessageLen+12-1/*IndexData-1*/));
+        //printf(" CRC:%02x/%02x",BufferData[11+MessageLen],crc_8(0x00,BufferData, MessageLen+12-1/*IndexData-1*/));
         CRCOK=(BufferData[11+MessageLen]==crc_8(0x00,BufferData, MessageLen+12-1/*IndexData-1*/));
         if(CRCOK)
         {
             if((BufferData[10]+2)==IndexData-12)
-                AddMessage(&BufferData[5],IndexData-1-5,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
+                AddMessage(Source,&BufferData[5],IndexData-1-5,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
             else
-                AddMessage(&BufferData[5],IndexData-5-1,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
+                AddMessage(Source,&BufferData[5],IndexData-5-1,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
         }
 
-        printf("\n");
+        //printf("\n");
     }
     else
     {
         
-         printf(" CRC:%02x/%02x\n",BufferData[IndexData-1],crc_8(0x00,BufferData, IndexData-1));
+         //printf(" CRC:%02x/%02x\n",BufferData[IndexData-1],crc_8(0x00,BufferData, IndexData-1));
     }
     if(PacketType==CON)
     {
-        printf(" BODY:");
-        for(int i=5;i<IndexData-1;i++) printf("%02x",BufferData[i]);
-        printf(" CRC:%02x/%02x",BufferData[IndexData-1],crc_8(0x00,BufferData, IndexData-1));
-        printf("\n");
+        //printf(" BODY:");
+        //for(int i=5;i<IndexData-1;i++) printf("%02x",BufferData[i]);
+        //printf(" CRC:%02x/%02x",BufferData[IndexData-1],crc_8(0x00,BufferData, IndexData-1));
+        //printf("\n");
         int CRCOK=(BufferData[IndexData-1]==crc_8(0x00,BufferData, IndexData-1));        
         if(CRCOK)
         {    
-            AddMessage(&BufferData[5],IndexData-5-1,0);
+            AddMessage(Source,&BufferData[5],IndexData-5-1,0);
         }
     }
 
