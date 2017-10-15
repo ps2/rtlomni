@@ -14,10 +14,10 @@ SDR demodulation and signal processing is based on excellent https://github.com/
 ```sh
 git clone https://github.com/jgaeddert/liquid-dsp/
 cd liquid-dsp
-mkdir build
-cd build
-cmake ../
-make && sudo make install
+./bootstrap.sh     # <- only if you cloned the Git repo
+./configure
+make
+sudo make install
 sudo ldconfig
 
 git clone https://github.com/F5OEO/rtlomni
@@ -25,6 +25,7 @@ cd rtlomni
 make
 
 #Install rtl-sdr driver and utilities (rtl_test, rtl_sdr ...)
+sudo apt-get install rtl-sdr
 
 ```
 
