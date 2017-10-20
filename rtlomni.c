@@ -57,16 +57,88 @@ unsigned char BufferData[255];
 int IndexData=0;
 FILE* iqfile=NULL;
 FILE *DebugIQ=NULL; 
+FILE *DebugFM=NULL; 
+
 
 
 //***************************************************************************************************
 //*********************************** SUB-MESSAGE LAYER ******************************************************
 //***************************************************************************************************
+
+// From WIKI 
+/*
+Command 0E requests status from the Pod.
+
+Command format:
+
+byte 0E: mtype
+byte 01: length
+byte: request type. 0, 1, 2, 3, 5, 6, 0x46, 0x50, or 0x51.
+A request of type 0 (the usual PDM status request) yields a Status response 1D. Other requests yield a Response 02, returning different data depending on the request type.
+*/
+
+unsigned char printbit(unsigned char Byte,int bitstart,int bitstop)
+{
+    if(bitstop>9) printf("biterror");
+    for(int i=bitstop;i>=bitstart;i--)
+    {
+        printf("%d",((Byte>>i)&1));
+        
+    }
+    return(Byte>>bitstart);
+
+}
+
+void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Length)
+{
+    enum {Cmd_GetConfig=3,Cmd_Pairing=7,Cmd_GetStatus=0xe,Cmd_InsulinSchedule=0x1a,Cmd_CancelBolus=0x1F};
+    enum {Resp_Status=0x1D};
+
+    printf("->");
+    switch(Type)
+    {
+        case Cmd_GetConfig:printf("GetConfig");break;
+        case Cmd_Pairing:printf("Pairing");break;
+        case Cmd_GetStatus:printf("Get Status type %02x",SubMessage[0]);break;  
+        case Cmd_InsulinSchedule:printf("Insulin Schedule");break;
+        case Cmd_CancelBolus:printf("Cancel Bolus\n");break;
+
+/*The 1D response has the following form:
+
+byte 1D: The message type.
+byte: bits ABCDEEEE. Bits A, B, C, D indicate values of internal table 7. 4-bit value EEEE is an important internal state value.
+dword: 4 zero bits. 13 bits with Table1[2]. 4 bits (maybe message sequence number). 11 bits (sum of various Table entries divided by 10 and rounded up).
+dword: 1 bit (indicates event 0x14 was logged). 8 bits (internal value). 13 bits (Tab1[1]). 10 bits (Tab1[0]).
+*/
+
+        case Resp_Status: 
+            if(Length>=9)
+            {
+                        printf(":");printf("Table7:");printbit(SubMessage[0],4,7);printf(" EEEE:");printbit(SubMessage[0],0,3);printf(" ");
+                        printf("4zero:");printbit(SubMessage[1],4,7);printf(" ");
+                        printf("Table1[2]:");printbit(SubMessage[1],0,3);printbit(SubMessage[2],0,7);printbit(SubMessage[3],7,7);printf(" ");
+                        printf("seqnumb:");printbit(SubMessage[3],3,6);printf(" ");
+                        printf("sum table:");printbit(SubMessage[3],0,2);printbit(SubMessage[4],0,7);printf(" ");    
+                       
+                        printf("Event14:");printbit(SubMessage[5],7,7);printf(" ");
+                        printf("Internal value:");printbit(SubMessage[5],0,6);printbit(SubMessage[6],7,7);printf(" ");
+                        printf("Tab1[1]:");printbit(SubMessage[6],0,6);printbit(SubMessage[7],7,2);printf(" ");
+                        printf("Tab1[0]:%d",(printbit(SubMessage[7],0,1)<<8)+(printbit(SubMessage[8],0,7)));printf(" ");          
+            }
+        break;
+
+    }
+    
+}
+
+
+
 void ParseSubMessage(int Seq,int Source,unsigned char *Message,int Length)
 {
     int i=0;
     int nbsub=0;
     //printf("\nSUBMESSAGES:\n");
+    printf("Message %d-------------------------------------------\n",Seq);
     while(i<Length)
     {
         if(Source==POD) printf("POD:"); else printf("PDM:");
@@ -82,13 +154,15 @@ void ParseSubMessage(int Seq,int Source,unsigned char *Message,int Length)
         {    
            Submessage[j]=Message[i++];
            printf("%02x",Submessage[j]);
+           
         }
+        InterpretSubMessage(Source,Type,Submessage,SubLength); 
         nbsub++;
  
         printf("\n");        
 
     }
-    printf("-------------------------------------------\n");
+    
     
 }
  
@@ -248,10 +322,14 @@ void ParsePacket(void)
    
     
      int static ActualSEQ=-1;   
-    /* printf("\nPACKET : ");
-    for(int i=0;i<IndexData;i++) printf("%x",BufferData[i]);
+     /*printf("\nPACKET : ");
+    for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]);
     printf("\n");
     */
+    /* ************* WORKAROUND FOR CC TRANSMITION ****************/
+    if(BufferData[IndexData-1]==0xFF) IndexData--;
+    if(BufferData[IndexData-2]==0xFF) IndexData-=2;
+    /* ************* END OF WORKAROUND FOR CC TRANSMITION ****************/
     
     if(IndexData<4) return; 
     if((IndexData<8)&&(IndexData>=4)) 
@@ -261,8 +339,9 @@ void ParsePacket(void)
         printf("\n");
         return;
     }
-    //printf("New packet with %d length : ",IndexData);   for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]); printf("\n");
 
+    //printf("New packet with %d length : ",IndexData);   for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]); printf("\n");
+    
     //printf("ID1:%x%x%x%x",BufferData[0],BufferData[1],BufferData[2],BufferData[3]);
     //printf(" PTYPE:");
     int PacketType=BufferData[4]>>5;
@@ -280,7 +359,7 @@ void ParsePacket(void)
     //printf(" SEQ:%d",BufferData[4]&0x1F);
     int Seq=BufferData[4]&0x1F;
     int CRCOK=0;
-
+    int ProcessedPacket=0;
     if(PacketType!=CON)
     {
         //printf(" ID2:%02x%02x%02x%02x",BufferData[5],BufferData[6],BufferData[7],BufferData[8]);
@@ -310,13 +389,20 @@ void ParsePacket(void)
                     AddMessage(Seq,Source,&BufferData[5],IndexData-5-1,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
             }
         }
-        //printf("\n");
+        else
+        {
+            
+            printf("BAD CRC\n");
+            Seq=ActualSEQ;
+        }
+        ProcessedPacket=1;
     }
     else
     {
         
          //printf(" CRC:%02x/%02x\n",BufferData[IndexData-1],crc_8(0x00,BufferData, IndexData-1));
     }
+
     if(PacketType==CON)
     {
         //printf(" BODY:");
@@ -332,9 +418,34 @@ void ParsePacket(void)
             }
             
         }
+        else
+        {
+            Seq=ActualSEQ;
+            printf("BAD CRC - CON\n");
+        }
+       ProcessedPacket=1;
     }
 
-
+    if(PacketType==ACK)
+    {
+        int CRCOK=(BufferData[IndexData-1]==crc_8(0x00,BufferData, IndexData-1));        
+        if(CRCOK)
+        {    
+            printf("ACK %d-----------------------------\n",Seq);
+            if(ActualSEQ!=Seq)
+            {
+                //AddMessage(Seq,Source,&BufferData[5],IndexData-5-1,0);
+            }
+            
+        }
+        else
+        {
+            Seq=ActualSEQ;
+            printf("BAD CRC - ACK\n");
+        }
+       ProcessedPacket=1;
+        
+    }    
 
     if(ActualSEQ==-1) 
     {
@@ -344,9 +455,11 @@ void ParsePacket(void)
     {
         
         if ((Seq==((ActualSEQ+2)%32))||(Seq==((ActualSEQ+1)%32))||(Seq==ActualSEQ)) // Normallu always +1 / equal id repetition / Could be +2 if Resync after a lost message
-        {}
+        {
+               
+        }
         else
-            printf("!---------------- MISS ONE PACKET ------------------\n");
+            printf("---------------- MISS ONE PACKET (%d/%d)------------------\n",Seq,ActualSEQ);
          ActualSEQ=Seq;
     }    
 
@@ -362,13 +475,13 @@ void AddData(unsigned char DataValue)
 {
    
  
-    if((IndexData==0)&&DataValue==0x54) {/*printf("[");*/return;} //Skip SYNC BYTE
-    if((IndexData==0)&&DataValue==0xC3) {/*printf("_");*/return;} //Skip 2SYNC BYTE 
+    if((IndexData==0)&&DataValue==0x54) {/*printf("[");*/return;} //Skip SYNC BYTE : 0x54 is No t inverted
+    if((IndexData==0)&&DataValue==0xC3) {/*printf("_");*/return;} //Skip 2SYNC BYTE : C3 is not inverted
     if(IndexData<255)
         BufferData[IndexData++]=DataValue^0xFF;
     else
         printf("Packet too long !!!\n");
-    //printf("%x",DataValue);
+    //printf("\n%x:%x\n",DataValue^0xFF,DataValue);
 }
 
 int ManchesterAdd(int BitValue)	
@@ -437,9 +550,12 @@ int GetFSKSync(unsigned char Sym)
     static unsigned int Buffer=0;
 
     int FSKCurrentStatus=FSK_SYNC_RUNNING;
+   
     Buffer=((Buffer<<1)&0xFFFE)|Sym;
     //printf("%x\n",Buffer);
-    if(Buffer==0x6665) {/*printf("#");*/FSKCurrentStatus=FSK_SYNC_ON;}
+    //if(Buffer==0x6665) {/*printf("#");*/FSKCurrentStatus=FSK_SYNC_ON;}
+    if(Buffer==0x6665) {/*printf("#");*/Buffer=0;FSKCurrentStatus=FSK_SYNC_ON;}
+    //if(Buffer==0xAAAA) {printf("$");FSKCurrentStatus=FSK_SYNC_ON;}
     //if((Buffer&0xF)==0xF) FSKCurrentStatus=FSK_SYNC_OFF;        
     
     return(FSKCurrentStatus);
@@ -468,9 +584,10 @@ int GetFSKSync(unsigned char Sym)
 
     msresamp2_crcf MyDecim;
     fskdem dem;
+    freqdem fdem;
 void InitRF(void)
 {    
-    float FSKDeviationHz=26370.0; //Inspectrum show +/-20KHZ ?    
+    float FSKDeviationHz=26296.0;//26370.0; //Inspectrum show +/-20KHZ ?    
    
     float FreqUp= 325000.0+5000;
     unsigned int m           =   1;     // number of bits/symbol
@@ -491,7 +608,7 @@ void InitRF(void)
      nco_crcf_set_phase(MyNCO, 0.0f);
     nco_crcf_set_frequency(MyNCO, 2.0*M_PI*FreqUp/IQSR); // Tuning frequency is SR/4 away : here 256/4=64KHZ : 433923+64=433987
     // modulate, demodulate, count errors
-
+    fdem=freqdem_create(27000.0*2*4/IQSR);
     
       
 }
@@ -524,14 +641,21 @@ int ProcessRF()
                 }
                 float complex AfterDecim[k/4];
                 float complex buf_rx2[k/4];
-                 
+
+                
+                unsigned char sym_out ;
+                float FmAmplitude[k/4];    
                 for(i=0;i<k/4;i++) //Decimation by 4
                 {
                     msresamp2_crcf_execute(MyDecim, &buf_rx[i*4], &AfterDecim[i]);  
                         //buf_rx[i]=rdown;
                     SampleTime++;
                     buf_rx2[i]=AfterDecim[i];//afteragc;
-                  
+
+                    freqdem_demodulate(fdem, buf_rx2[i], &FmAmplitude[i]);
+                    fwrite(&FmAmplitude[i],sizeof(float),1,DebugFM);
+                    //printf("%f \n",FmAmplitude[i]);
+                    
                     float re=crealf(buf_rx2[i]);//printf("%f+i)",re);
                     float im=cimagf(buf_rx2[i]);//printf("%f\n",im);
                     //  if(agc_crcf_get_rssi(MyAGC)>-20)
@@ -542,47 +666,72 @@ int ProcessRF()
                     }
 
                 }
-                unsigned char sym_out = fskdem_demodulate(dem, buf_rx2);
-                
-                static int FSKSyncStatus=0;
-                
-                
-
-                if((FSKSyncStatus==1))
+                static int FMState=0;
+                static int SampleFromLastTransition=0;    
+                int NbSymbol=0;
+                unsigned char Sym[k/4];
+                for(i=0;i<k/4;i++) 
                 {
+                    SampleFromLastTransition++;
+                    if((FMState==0)&&(FmAmplitude[i]>=0.4))
+                         {Sym[NbSymbol++]=1;FMState=1;SampleFromLastTransition=0;}
+                    else
+                        if((FMState==1)&&(FmAmplitude[i]<-0.4)) {Sym[NbSymbol++]=0;FMState=0;SampleFromLastTransition=0;}   
                     
-                    int Manchester=ManchesterAdd(sym_out);
-                    //
-                    if(Manchester>=0)
+                    if(SampleFromLastTransition>(k/4+2)) {Sym[NbSymbol++]=FMState;SampleFromLastTransition=0;} 
+                }
+                 
+                if((NbSymbol>2)||(NbSymbol==0)) return 1;/* else printf("%d",NbSymbol);*/// More than 2 transition is surely noise    
+                
+                 //sym_out = fskdem_demodulate(dem, buf_rx2);
+                //NbSymbol=1;Sym[0]=sym_out;
+                for(int i=0;i<NbSymbol;i++)
+                {
+                    static int FSKSyncStatus=0;
+                    
+                     //sym_out=(sym_out==0)?1:0;
+
+                    if((FSKSyncStatus==1))
                     {
-                            AddData(Manchester);
+                        
+                        int Manchester=ManchesterAdd(Sym[i]);
+                        //
+                        if(Manchester>=0)
+                        {
+                                AddData(Manchester);
+                        }
+                        else
+                        {
+                            
+                            if(Manchester==-2)
+                            {
+                                //printf("\n Unlock \n");
+                                ParsePacket();
+                                
+                                FSKSyncStatus=0; // Error in Manchester 
+                                IndexData=0;
+                                ManchesterAdd(-1);
+                                
+                                
+                            }
+                            
+                                              
+                        }                        
+              
                     }
                     else
+                        ManchesterAdd(-1);
+                                
+                    //if(FSKSyncStatus!=1)
                     {
-                        
-                        if(Manchester==-2)
+                        int InTimeSync=GetFSKSync(Sym[i]);
+                        switch(InTimeSync)
                         {
-                            //printf("\n Unlock \n");
-                            ParsePacket();
-                            FSKSyncStatus=0; // Error in Manchester 
-                            IndexData=0;
-                            ManchesterAdd(-1);
+                            case FSK_SYNC_ON: FSKSyncStatus=1;break;
+                            case FSK_SYNC_OFF:FSKSyncStatus=0;break;
                         }
-                        
-                                          
-                    }                        
-          
-                }
-                else
-                    ManchesterAdd(-1);
-
-                int InTimeSync=GetFSKSync(sym_out);
-                switch(InTimeSync)
-                {
-                    case FSK_SYNC_ON: FSKSyncStatus=1;break;
-                    case FSK_SYNC_OFF:FSKSyncStatus=0;break;
-                }
-                
+                    }
+                }    
               
                 
 
@@ -632,7 +781,7 @@ int main(int argc, char*argv[])
         }
      
     }
-
+      DebugFM = fopen ("debugfm.cf32", "wb");
     
     //iqfile = fopen ("fifo.cu8", "r");
     if(iqfile==NULL) {printf("Missing input file\n");exit(0);}
@@ -646,7 +795,8 @@ int main(int argc, char*argv[])
     while(ProcessRF())
     {
            
-    }       
+    } 
+    if(DebugFM!=NULL) fclose(DebugFM);      
     if(DebugIQ!=NULL) fclose(DebugIQ);
     if(iqfile!=NULL) fclose(iqfile);
    
