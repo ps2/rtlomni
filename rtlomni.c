@@ -57,8 +57,9 @@ unsigned char BufferData[255];
 int IndexData=0;
 FILE* iqfile=NULL;
 FILE *DebugIQ=NULL; 
+#ifdef DEBUG_FM
 FILE *DebugFM=NULL; 
-
+#endif
 
 
 //***************************************************************************************************
@@ -446,7 +447,8 @@ void ParsePacket(void)
        ProcessedPacket=1;
         
     }    
-
+    
+    if(ProcessedPacket==0) printf("Message not parsed\n");    
     if(ActualSEQ==-1) 
     {
         ActualSEQ=Seq;
@@ -653,7 +655,9 @@ int ProcessRF()
                     buf_rx2[i]=AfterDecim[i];//afteragc;
 
                     freqdem_demodulate(fdem, buf_rx2[i], &FmAmplitude[i]);
+                    #ifdef DEBUG_FM
                     fwrite(&FmAmplitude[i],sizeof(float),1,DebugFM);
+                    #endif
                     //printf("%f \n",FmAmplitude[i]);
                     
                     float re=crealf(buf_rx2[i]);//printf("%f+i)",re);
@@ -781,7 +785,9 @@ int main(int argc, char*argv[])
         }
      
     }
+      #ifdef DEBUG_FM
       DebugFM = fopen ("debugfm.cf32", "wb");
+      #endif  
     
     //iqfile = fopen ("fifo.cu8", "r");
     if(iqfile==NULL) {printf("Missing input file\n");exit(0);}
@@ -796,7 +802,9 @@ int main(int argc, char*argv[])
     {
            
     } 
+    #ifdef DEBUG_FM
     if(DebugFM!=NULL) fclose(DebugFM);      
+    #endif    
     if(DebugIQ!=NULL) fclose(DebugIQ);
     if(iqfile!=NULL) fclose(iqfile);
    
