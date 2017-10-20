@@ -40,8 +40,9 @@
 
 int FileFreqTiming=0;    
 
-float BaudRate=40625;
-float Deviation=29296;
+double BaudRate=40000;//40625.0;
+double Deviation=27000;//26296.0;
+uint32_t TotalTiming=0;
 void WriteTone(double Frequency,uint32_t Timing)
 {
 	typedef struct {
@@ -51,8 +52,10 @@ void WriteTone(double Frequency,uint32_t Timing)
 	samplerf_t RfSample;
 	
 	RfSample.Frequency=Frequency;
-	RfSample.WaitForThisSample=Timing*1000L; //en 100 de nanosecond
-	//printf("Freq =%f Timing=%d\n",RfSample.Frequency,RfSample.WaitForThisSample);
+	RfSample.WaitForThisSample=Timing; //en 100 de nanosecond
+    if(Frequency!=0.0)
+        TotalTiming+=Timing;
+	//printf("Freq =%f Timing=%ld\n",RfSample.Frequency,RfSample.WaitForThisSample);
 	if (write(FileFreqTiming, &RfSample,sizeof(samplerf_t)) != sizeof(samplerf_t)) {
 		fprintf(stderr, "Unable to write sample\n");
 	}
@@ -61,7 +64,7 @@ void WriteTone(double Frequency,uint32_t Timing)
 
 void WriteFSK(unsigned char bit)
 {
-    uint32_t Delay=1e9*1.0/BaudRate;
+    uint32_t Delay=1e9/BaudRate;
     if(bit==0) 
         WriteTone(-Deviation,Delay);
     else
@@ -69,11 +72,14 @@ void WriteFSK(unsigned char bit)
        
 }
 
-void WriteByteManchester(unsigned char Byte)
+void WriteByteManchester(unsigned char Byte,char flip)
 {
+    unsigned char ByteFlip;
+    if(flip==1) ByteFlip=Byte^0xFF; else ByteFlip=Byte; 
+    printf("%x",ByteFlip);
     for(int i=7;i>=0;i--)
     {
-        if(((Byte>>i)&0x1)==0) 
+        if(((ByteFlip>>i)&0x1)==0) 
         {
             WriteFSK(0);
             WriteFSK(1);    
@@ -88,17 +94,31 @@ void WriteByteManchester(unsigned char Byte)
 
 void WriteSync()
 {
-    for(int i=0;i<10;i++)
+    for(int i=0;i<100;i++)
     {
-        WriteByteManchester(0x54);
+        WriteByteManchester(0x54,0);
     }
-    WriteByteManchester(0xC3);    
+    WriteByteManchester(0xC3,0);    
 }
 
 void WriteEnd()
 {
        for(int i=0;i<5;i++)
            WriteFSK(1);
+        WriteTone(0,1e9);
+        
+}
+
+void Test()
+{
+    for(int j=0;j<1000;j++)
+    {    
+        for(int i=0;i<500;i++)
+            WriteFSK(1);
+                for(int i=0;i<500;i++)
+            WriteFSK(0);
+    }
+        
 }
  
 int main(int argc, char **argv)
@@ -119,17 +139,35 @@ int main(int argc, char **argv)
 		exit(0);
 	}
   
-    char sHexDigit[2]="A";
+    if(argc>3) 
+    {
+        BaudRate=atoi(argv[3]);
+        printf("\n Baudrate=%f\n",BaudRate);
+    }
+    char sHexDigit[3]="0";
     char *End;
 
-    WriteSync();
-	for(int i=0;i<strlen(sText);i++)
-	{
-        sHexDigit[0]=sText[i];
-        WriteByteManchester((unsigned char)strtol(sHexDigit,&End,16));
+    printf("Len = %d\n",strlen(sText));
 
-	}
-    WriteEnd(); 
+     //Test();    
+
+    for(int NbTx=0;NbTx<10;NbTx++)
+    {
+
+        WriteSync();
+        
+	    for(int i=0;i<strlen(sText);i+=2)
+	    {
+            sHexDigit[0]=sText[i];
+            sHexDigit[1]=sText[i+1];
+            WriteByteManchester((unsigned char)strtol(sHexDigit,&End,16),1);
+
+	    }
+        WriteEnd(); 
+    }
+
+
+    printf("\nMessage Timing=%u",TotalTiming);
 	close(FileFreqTiming);
 }
  
