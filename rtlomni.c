@@ -93,26 +93,46 @@ unsigned char printbit(unsigned char Byte,int bitstart,int bitstop)
 
 void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Length)
 {
-    enum {Cmd_GetConfig=3,Cmd_Pairing=7,Cmd_GetStatus=0xe,Cmd_InsulinSchedule=0x1a,Cmd_CancelBolus=0x1F};
+    enum {Cmd_GetConfig=3,Cmd_Pairing=7,Cmd_GetStatus=0xe,Cmd_InsulinScheduleExtra=0x17,Cmd_InsulinSchedule=0x1a,Cmd_CancelBolus=0x1F};
     enum {Resp_Status=0x1D};
     const char *TypeInsulin[]={"Basal","Temp Basal","Bolus"};
-    printf("->");
+    printf("(%d)->",Length);
     switch(Type)
     {
         case Cmd_GetConfig:printf("GetConfig");break;
         case Cmd_Pairing:printf("Pairing");break;
         case Cmd_GetStatus:printf("Get Status type %02x",SubMessage[0]);break;  
         case Cmd_InsulinSchedule:
-        //https://github.com/openaps/openomni/wiki/Insulin-Schedule-Command
-        printf("Insulin Schedule"); 
-        printf("Nonce:%02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");
-        printf("Type:%02x%s",SubMessage[4],TypeInsulin[SubMessage[4]&0x3]);printf(" ");
-        printf("CheckSum:%02x%02x",SubMessage[5],SubMessage[6]);printf(" ");
-        printf("Duration:%02x(%d minutes)",SubMessage[7],SubMessage[7]*30);printf(" ");
-        printf("FiledA:%02x%02x",SubMessage[8],SubMessage[9]);printf(" ");
-        printf("UnitRate:%02x%02x(%0.1fU)",SubMessage[10],SubMessage[11],(SubMessage[10]*256+SubMessage[11])*0.1);printf(" ");
-        printf("UnitRateSchedule:%02x%02x",SubMessage[12],SubMessage[13]);printf(" ");
-            break;
+            //https://github.com/openaps/openomni/wiki/Insulin-Schedule-Command
+            printf("Insulin Schedule:"); 
+            printf("Nonce:%02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");
+            printf("Type:%02x %s",SubMessage[4],TypeInsulin[SubMessage[4]&0x3]);printf(" ");
+            int Type=SubMessage[4];
+            
+            printf("CheckSum:%02x%02x",SubMessage[5],SubMessage[6]);printf(" ");
+
+            switch(Type)
+            {
+                case 0x2://BOLUS
+                    printf("Duration:%02x(%d minutes)",SubMessage[7],SubMessage[7]*30);printf(" ");
+                    printf("FiledA:%02x%02x",SubMessage[8],SubMessage[9]);printf(" ");
+                    float UnitRate=0.05;
+                    //if((SubMessage[10]*256+SubMessage[11])==0x0040) UnitRate=0.1;
+                    //if((SubMessage[10]*256+SubMessage[11])==0x0060) UnitRate=0.05;
+                    //printf("UnitRate:%0.1f",SubMessage[10],SubMessage[11],(SubMessage[10]*256+SubMessage[11])*0.1);printf(" ");
+                    printf("UnitRate:%02x%02x(%0.1fU)",SubMessage[10],SubMessage[11],(SubMessage[10]*256+SubMessage[11])*UnitRate);printf(" ");
+                    printf("UnitRateSchedule:%02x%02x(%0.1fU)",SubMessage[12],SubMessage[13],(SubMessage[12]*256+SubMessage[13])*UnitRate);printf(" ");
+                break;
+            }
+        break;
+        case Cmd_InsulinScheduleExtra:
+        //https://github.com/openaps/openomni/wiki/Command-17---Bolus-extra    
+        printf("InsulinExtra");
+        if(Length==0x10) printf("(long):");
+        if(Length==0xD) printf("(short):");    
+        printf("Immediate");
+        printf("\n");
+        break;
         case Cmd_CancelBolus:printf("Cancel Bolus\n");break;
 
 
@@ -141,8 +161,8 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
             }
         break;
         default:
-        printf("Submessage not parsed Type %02x",Type);
-        for(int i=0;i<Length;i++) printf("%02x",SubMessage[i]);
+        printf("Submessage not parsed ");
+        //for(int i=0;i<Length;i++) printf("%02x",SubMessage[i]);
         printf("\n");
         break; 
 
@@ -253,6 +273,7 @@ void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMes
            
         }
         printf("\n");
+        return;
     }
     if((Source==POD)||(Source==PDM))
     {
@@ -372,7 +393,7 @@ void ParsePacket(void)
         return;
     }
 
-    //printf("New packet with %d length : ",IndexData);   for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]); printf("\n");
+   
     
     //printf("ID1:%x%x%x%x",BufferData[0],BufferData[1],BufferData[2],BufferData[3]);
     //printf(" PTYPE:");
@@ -390,6 +411,8 @@ void ParsePacket(void)
     int Source=PacketType;
     //printf(" SEQ:%d",BufferData[4]&0x1F);
     int Seq=BufferData[4]&0x1F;
+
+    //printf("New packet type %x with %d length : ",PacketType,IndexData);   for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]); printf("\n");
     int CRCOK=0;
     int ProcessedPacket=0;
     if(PacketType!=CON)
@@ -397,7 +420,7 @@ void ParsePacket(void)
         //printf(" ID2:%02x%02x%02x%02x",BufferData[5],BufferData[6],BufferData[7],BufferData[8]);
     }
     
-    if((PacketType!=CON)&&(PacketType!=ACK)&&IndexData>11)
+    if(((PacketType==PDM)||(PacketType==POD))&&(IndexData>11))
     {
         //printf(" B9:%02x",BufferData[9]);
         
@@ -429,11 +452,7 @@ void ParsePacket(void)
         }
         ProcessedPacket=1;
     }
-    else
-    {
-        
-         //printf(" CRC:%02x/%02x\n",BufferData[IndexData-1],crc_8(0x00,BufferData, IndexData-1));
-    }
+    
 
     if(PacketType==CON)
     {
@@ -479,7 +498,7 @@ void ParsePacket(void)
         
     }    
     
-    if(ProcessedPacket==0) printf("Message not parsed\n");    
+    if(ProcessedPacket==0) printf("Packet not parsed\n");    
     if(ActualSEQ==-1) 
     {
         ActualSEQ=Seq;
@@ -589,7 +608,7 @@ int GetFSKSync(unsigned char Sym)
     //if(Buffer==0x6665) {/*printf("#");*/FSKCurrentStatus=FSK_SYNC_ON;}
     if(Buffer==0x6665) {/*printf("#");*/Buffer=0;FSKCurrentStatus=FSK_SYNC_ON;}
     //if(Buffer==0xAAAA) {printf("$");FSKCurrentStatus=FSK_SYNC_ON;}
-    //if((Buffer&0xF)==0xF) FSKCurrentStatus=FSK_SYNC_OFF;        
+    if((Buffer&0xF)==0xF) FSKCurrentStatus=FSK_SYNC_OFF;        
     
     return(FSKCurrentStatus);
 }
