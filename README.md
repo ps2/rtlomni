@@ -12,6 +12,8 @@ SDR demodulation and signal processing is based on excellent https://github.com/
 
 # Installation under Debian based system
 ```sh
+sudo apt-get install autoconf git
+
 git clone https://github.com/jgaeddert/liquid-dsp/
 cd liquid-dsp
 ./bootstrap.sh     # <- only if you cloned the Git repo
