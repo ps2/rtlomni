@@ -108,8 +108,12 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
             printf("Nonce:%02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");
             printf("Type:%02x %s",SubMessage[4],TypeInsulin[SubMessage[4]&0x3]);printf(" ");
             int Type=SubMessage[4];
-            
-            printf("CheckSum:%02x%02x",SubMessage[5],SubMessage[6]);printf(" ");
+            int CheckSum=0;
+            for(int i=7;i<14;i++)
+                CheckSum+=SubMessage[i];
+            CheckSum=CheckSum&0xFFFF;
+
+            printf("CheckSum:%02x%02x/%02x%02x",SubMessage[5],SubMessage[6],CheckSum>>8,CheckSum&0xFF);printf(" ");
 
             switch(Type)
             {
