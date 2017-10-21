@@ -225,6 +225,17 @@ void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMes
     static int IndexMessage=0;
     static int MessageLength=0;
     static int LastSource=0;
+    if(Source==ACK) 
+    {
+        printf("ACK %d: ",Seq);
+        for(int j=0;j<Length;j++)
+        {    
+           
+           printf("%02x",Packet[j]);
+           
+        }
+        printf("\n");
+    }
     if((Source==POD)||(Source==PDM))
     {
         LastSource=Source;
@@ -432,10 +443,10 @@ void ParsePacket(void)
         int CRCOK=(BufferData[IndexData-1]==crc_8(0x00,BufferData, IndexData-1));        
         if(CRCOK)
         {    
-            printf("ACK %d-----------------------------\n",Seq);
+            //printf("ACK %d-----------------------------\n",Seq);
             if(ActualSEQ!=Seq)
             {
-                //AddMessage(Seq,Source,&BufferData[5],IndexData-5-1,0);
+                AddMessage(Seq,Source,&BufferData[5],IndexData-5-1,0);
             }
             
         }
