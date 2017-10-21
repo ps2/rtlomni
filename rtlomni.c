@@ -53,7 +53,8 @@ int min( int a, int b ) { return a < b ? a : b; }
 int DebugLevel=Debug_Message;
 
 // RF Layer Global
-unsigned char BufferData[255];
+#define MAXPACKETLENGTH 4096
+unsigned char BufferData[MAXPACKETLENGTH];
 int IndexData=0;
 FILE* iqfile=NULL;
 FILE *DebugIQ=NULL; 
@@ -94,25 +95,37 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
 {
     enum {Cmd_GetConfig=3,Cmd_Pairing=7,Cmd_GetStatus=0xe,Cmd_InsulinSchedule=0x1a,Cmd_CancelBolus=0x1F};
     enum {Resp_Status=0x1D};
-
+    const char *TypeInsulin[]={"Basal","Temp Basal","Bolus"};
     printf("->");
     switch(Type)
     {
         case Cmd_GetConfig:printf("GetConfig");break;
         case Cmd_Pairing:printf("Pairing");break;
         case Cmd_GetStatus:printf("Get Status type %02x",SubMessage[0]);break;  
-        case Cmd_InsulinSchedule:printf("Insulin Schedule");break;
+        case Cmd_InsulinSchedule:
+        //https://github.com/openaps/openomni/wiki/Insulin-Schedule-Command
+        printf("Insulin Schedule"); 
+        printf("Nonce:%02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");
+        printf("Type:%02x%s",SubMessage[4],TypeInsulin[SubMessage[4]&0x3]);printf(" ");
+        printf("CheckSum:%02x%02x",SubMessage[5],SubMessage[6]);printf(" ");
+        printf("Duration:%02x(%d minutes)",SubMessage[7],SubMessage[7]*30);printf(" ");
+        printf("FiledA:%02x%02x",SubMessage[8],SubMessage[9]);printf(" ");
+        printf("UnitRate:%02x%02x(%0.1fU)",SubMessage[10],SubMessage[11],(SubMessage[10]*256+SubMessage[11])*0.1);printf(" ");
+        printf("UnitRateSchedule:%02x%02x",SubMessage[12],SubMessage[13]);printf(" ");
+            break;
         case Cmd_CancelBolus:printf("Cancel Bolus\n");break;
 
-/*The 1D response has the following form:
 
-byte 1D: The message type.
-byte: bits ABCDEEEE. Bits A, B, C, D indicate values of internal table 7. 4-bit value EEEE is an important internal state value.
-dword: 4 zero bits. 13 bits with Table1[2]. 4 bits (maybe message sequence number). 11 bits (sum of various Table entries divided by 10 and rounded up).
-dword: 1 bit (indicates event 0x14 was logged). 8 bits (internal value). 13 bits (Tab1[1]). 10 bits (Tab1[0]).
-*/
 
         case Resp_Status: 
+        //https://github.com/openaps/openomni/wiki/Status-response-1D
+        /*The 1D response has the following form:
+
+        byte 1D: The message type.
+        byte: bits ABCDEEEE. Bits A, B, C, D indicate values of internal table 7. 4-bit value EEEE is an important internal state value.
+        dword: 4 zero bits. 13 bits with Table1[2]. 4 bits (maybe message sequence number). 11 bits (sum of various Table entries divided by 10 and rounded up).
+        dword: 1 bit (indicates event 0x14 was logged). 8 bits (internal value). 13 bits (Tab1[1]). 10 bits (Tab1[0]).
+        */
             if(Length>=9)
             {
                         printf(":");printf("Table7:");printbit(SubMessage[0],4,7);printf(" EEEE:");printbit(SubMessage[0],0,3);printf(" ");
@@ -339,8 +352,10 @@ void ParsePacket(void)
     printf("\n");
     */
     /* ************* WORKAROUND FOR CC TRANSMITION ****************/
+    #ifdef RILEY_WORKAROUND
     if(BufferData[IndexData-1]==0xFF) IndexData--;
     if(BufferData[IndexData-2]==0xFF) IndexData-=2;
+    #endif
     /* ************* END OF WORKAROUND FOR CC TRANSMITION ****************/
     
     if(IndexData<4) return; 
@@ -490,7 +505,7 @@ void AddData(unsigned char DataValue)
  
     if((IndexData==0)&&DataValue==0x54) {/*printf("[");*/return;} //Skip SYNC BYTE : 0x54 is No t inverted
     if((IndexData==0)&&DataValue==0xC3) {/*printf("_");*/return;} //Skip 2SYNC BYTE : C3 is not inverted
-    if(IndexData<255)
+    if(IndexData<MAXPACKETLENGTH)
         BufferData[IndexData++]=DataValue^0xFF;
     else
         printf("Packet too long !!!\n");
