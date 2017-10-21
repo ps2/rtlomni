@@ -140,6 +140,11 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                         printf("Tab1[0]:%d",(printbit(SubMessage[7],0,1)<<8)+(printbit(SubMessage[8],0,7)));printf(" ");          
             }
         break;
+        default:
+        printf("Submessage not parsed Type %02x",Type);
+        for(int i=0;i<Length;i++) printf("%02x",SubMessage[i]);
+        printf("\n");
+        break; 
 
     }
     
