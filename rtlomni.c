@@ -108,16 +108,18 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
             printf("Nonce:%02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");
             printf("Type:%02x %s",SubMessage[4],TypeInsulin[SubMessage[4]&0x3]);printf(" ");
             int Type=SubMessage[4];
-            int CheckSum=0;
-            for(int i=7;i<14;i++)
-                CheckSum+=SubMessage[i];
-            CheckSum=CheckSum&0xFFFF;
-
-            printf("CheckSum:%02x%02x/%02x%02x",SubMessage[5],SubMessage[6],CheckSum>>8,CheckSum&0xFF);printf(" ");
+            
 
             switch(Type)
             {
                 case 0x2://BOLUS
+                {
+                    int CheckSum=0;
+                   for(int i=7;i<14;i++)
+                        CheckSum+=SubMessage[i];
+                   CheckSum=CheckSum&0xFFFF;
+
+                    printf("CheckSum:%02x%02x/%02x%02x",SubMessage[5],SubMessage[6],CheckSum>>8,CheckSum&0xFF);printf(" ");
                     printf("Duration:%02x(%d minutes)",SubMessage[7],SubMessage[7]*30);printf(" ");
                     printf("FiledA:%02x%02x",SubMessage[8],SubMessage[9]);printf(" ");
                     float UnitRate=0.05;
@@ -126,6 +128,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                     //printf("UnitRate:%0.1f",SubMessage[10],SubMessage[11],(SubMessage[10]*256+SubMessage[11])*0.1);printf(" ");
                     printf("UnitRate:%02x%02x(%0.1fU)",SubMessage[10],SubMessage[11],(SubMessage[10]*256+SubMessage[11])*UnitRate);printf(" ");
                     printf("UnitRateSchedule:%02x%02x(%0.1fU)",SubMessage[12],SubMessage[13],(SubMessage[12]*256+SubMessage[13])*UnitRate);printf(" ");
+                }    
                 break;
             }
         break;
@@ -176,12 +179,12 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
 
 
 
-void ParseSubMessage(int Seq,int Source,unsigned char *Message,int Length)
+void ParseSubMessage(int Seq,int Source,unsigned char *Message,int Length,int SeqMessage)
 {
     int i=0;
     int nbsub=0;
     //printf("\nSUBMESSAGES:\n");
-    printf("Message %d-------------------------------------------\n",Seq);
+    printf("Packet %d Message %d-------------------------------------------\n",Seq,SeqMessage);
     while(i<Length)
     {
         if(Source==POD) printf("POD:"); else printf("PDM:");
@@ -261,12 +264,14 @@ unsigned int crc16(unsigned char *data,int len)
 
 
 
-void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMessageLength)
+void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMessageLength,int SeqMessage)
 {
     static unsigned char Message[512];
     static int IndexMessage=0;
     static int MessageLength=0;
     static int LastSource=0;
+    static int MemSeqMessage=-1;
+    if(SeqMessage!=-1) MemSeqMessage=SeqMessage;
     if(Source==ACK) 
     {
         printf("ACK %d: ",Seq);
@@ -309,7 +314,7 @@ void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMes
         unsigned int CRCProcess=crc16(&Message[0],MessageLength-2);
         // printf(" CRC16=%04x/%04x",CRCRead,CRCProcess);
         if(CRCRead==CRCProcess) //CRC OK
-          ParseSubMessage(Seq,LastSource,&Message[6],IndexMessage-6-2);  
+          ParseSubMessage(Seq,LastSource,&Message[6],IndexMessage-6-2,MemSeqMessage);  
 
 
 
@@ -424,11 +429,13 @@ void ParsePacket(void)
         //printf(" ID2:%02x%02x%02x%02x",BufferData[5],BufferData[6],BufferData[7],BufferData[8]);
     }
     
-    if(((PacketType==PDM)||(PacketType==POD))&&(IndexData>11))
+    if(((PacketType==PDM)||(PacketType==POD))&&(IndexData>11))     
     {
         //printf(" B9:%02x",BufferData[9]);
+        int MessageSeq=(BufferData[9]&0x3C)>>2;
         
         int MessageLen=min((BufferData[10]+2),IndexData-12); //+2 Because CRC16 added ? 
+        int ExtraMessageLen=BufferData[10]+((BufferData[9] & 3) << 8); // TO add for long message : FixMe !!!
         
         //printf(" BLEN:%d/%d",(BufferData[10]+2),IndexData-12);
 
@@ -443,9 +450,9 @@ void ParsePacket(void)
             if(ActualSEQ!=Seq)
             {
                 if((BufferData[10]+2)==IndexData-12)
-                    AddMessage(Seq,Source,&BufferData[5],IndexData-1-5,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
+                    AddMessage(Seq,Source,&BufferData[5],IndexData-1-5,ExtraMessageLen+6+2,MessageSeq); // To CHECK here !!!!!!!!!!!!!!
                 else
-                    AddMessage(Seq,Source,&BufferData[5],IndexData-5-1,(BufferData[10])+6/*ID*/+2/*CRC16*/); // To CHECK here !!!!!!!!!!!!!!
+                    AddMessage(Seq,Source,&BufferData[5],IndexData-5-1,ExtraMessageLen+6+2,MessageSeq); // To CHECK here !!!!!!!!!!!!!!
             }
         }
         else
@@ -469,7 +476,7 @@ void ParsePacket(void)
         {    
             if(ActualSEQ!=Seq)
             {
-                AddMessage(Seq,Source,&BufferData[5],IndexData-5-1,0);
+                AddMessage(Seq,Source,&BufferData[5],IndexData-5-1,0,-1);
             }
             
         }
@@ -489,7 +496,7 @@ void ParsePacket(void)
             //printf("ACK %d-----------------------------\n",Seq);
             if(ActualSEQ!=Seq)
             {
-                AddMessage(Seq,Source,&BufferData[5],IndexData-5-1,0);
+                AddMessage(Seq,Source,&BufferData[5],IndexData-5-1,0,-1);
             }
             
         }
