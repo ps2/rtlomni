@@ -58,6 +58,7 @@ unsigned char BufferData[MAXPACKETLENGTH];
 int IndexData=0;
 FILE* iqfile=NULL;
 FILE *DebugIQ=NULL; 
+FILE *ManchesterFile=NULL;
 #ifdef DEBUG_FM
 FILE *DebugFM=NULL; 
 #endif
@@ -147,7 +148,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
             int Type=SubMessage[4];
             
 
-            switch(Type)
+            switch(Type) // To be completed with other modes : Fixme !
             {
                 case 0x2://BOLUS
                 {
@@ -211,6 +212,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
             }
         break;
         case Resp_Tid:
+        //https://github.com/openaps/openomni/wiki/Response-01
         {
             printf("ResTid:");
             if(Length==0x1b)
@@ -847,7 +849,10 @@ int ProcessRF()
                         //
                         if(Manchester>=0)
                         {
+                                unsigned char ManchesterByte=Manchester; 
+                                fwrite(&ManchesterByte,1,1,ManchesterFile);
                                 AddData(Manchester);
+                                
                         }
                         else
                         {
@@ -918,7 +923,13 @@ int main(int argc, char*argv[])
 
     
     if(argc>=2)
-            iqfile = fopen (argv[1], "r");    
+    {
+            iqfile = fopen (argv[1], "r");
+            char ManchesterFileName[255];
+            strcpy(ManchesterFileName,argv[1]);
+            strcat(ManchesterFileName,".man");
+            ManchesterFile=fopen(ManchesterFileName, "wb");
+    }    
     else    
             iqfile = fopen ("omniup325.cu8", "r");
     if(argc>=3)
