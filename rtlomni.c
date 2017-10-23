@@ -64,6 +64,13 @@ FILE *DebugFM=NULL;
 
 
 //***************************************************************************************************
+//*********************************** NONCE GENERATION***********************************************
+//***************************************************************************************************
+
+
+
+
+//***************************************************************************************************
 //*********************************** SUB-MESSAGE LAYER ******************************************************
 //***************************************************************************************************
 
@@ -93,15 +100,45 @@ unsigned char printbit(unsigned char Byte,int bitstart,int bitstop)
 
 void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Length)
 {
-    enum {Cmd_GetConfig=3,Cmd_Pairing=7,Cmd_GetStatus=0xe,Cmd_InsulinScheduleExtra=0x17,Cmd_InsulinSchedule=0x1a,Cmd_CancelBolus=0x1F};
-    enum {Resp_Status=0x1D};
+    enum {Cmd_GetConfig=3,Cmd_Pairing=7,Cmd_GetStatus=0xe,Cmd_InsulinScheduleExtra=0x17,Cmd_SyncTime=0x19,Cmd_InsulinSchedule=0x1a,Cmd_CancelBolus=0x1F};
+    enum {Resp_Status=0x1D,Resp_Tid=0x01,Resp02=0x02};
     const char *TypeInsulin[]={"Basal","Temp Basal","Bolus"};
+
+    #define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_YELLOW  "\x1b[33m"
+#define ANSI_COLOR_BLUE    "\x1b[34m"
+#define ANSI_COLOR_MAGENTA "\x1b[35m"
+#define ANSI_COLOR_CYAN    "\x1b[36m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
+
+    printf(ANSI_COLOR_GREEN);
     printf("(%d)->",Length);
     switch(Type)
     {
-        case Cmd_GetConfig:printf("GetConfig");break;
-        case Cmd_Pairing:printf("Pairing");break;
-        case Cmd_GetStatus:printf("Get Status type %02x",SubMessage[0]);break;  
+        case Cmd_GetConfig:printf("GetConfig");
+        //https://github.com/openaps/openomni/wiki/Command-03
+        {
+            printf("POD Add=%02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");
+            printf("Unknwown %02x",SubMessage[5]);printf(" ");
+            printf("Date %02x%02x%02x%02x%02x",SubMessage[6],SubMessage[7],SubMessage[8],SubMessage[9],SubMessage[10]);
+
+            if(Length==0x13)
+            {
+                 int LotId=(SubMessage[15]<<24)+(SubMessage[16]<<16)+(SubMessage[17]<<8)+SubMessage[18];       
+                printf("Lot=%02x%02x%02x%02x(L%d)",SubMessage[11],SubMessage[12],SubMessage[13],SubMessage[14],LotId);printf(" ");
+                printf("Tid=%02x%02x%02x%02x",SubMessage[15],SubMessage[16],SubMessage[17],SubMessage[18]);printf(" ");
+
+            }
+        }    
+        break;
+        case Cmd_Pairing:
+            //https://github.com/openaps/openomni/wiki/Command-07
+             printf("Pairing with ID %02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);
+        break;
+        case Cmd_GetStatus:
+            //https://github.com/openaps/openomni/wiki/Command-0E
+            printf("Get Status type %02x",SubMessage[0]);break;  
         case Cmd_InsulinSchedule:
             //https://github.com/openaps/openomni/wiki/Insulin-Schedule-Command
             printf("Insulin Schedule:"); 
@@ -140,8 +177,13 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         printf("Immediate");
         printf("\n");
         break;
-        case Cmd_CancelBolus:printf("Cancel Bolus\n");break;
-
+        case Cmd_CancelBolus:
+        //https://github.com/openaps/openomni/wiki/Command-1F        
+         printf("Cancel Bolus:");
+        printf("Nonce %02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");
+        break;
+        case Cmd_SyncTime:printf("SyncTime???\n");break;
+        //https://github.com/openaps/openomni/wiki/Command-19
 
 
         case Resp_Status: 
@@ -153,6 +195,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         dword: 4 zero bits. 13 bits with Table1[2]. 4 bits (maybe message sequence number). 11 bits (sum of various Table entries divided by 10 and rounded up).
         dword: 1 bit (indicates event 0x14 was logged). 8 bits (internal value). 13 bits (Tab1[1]). 10 bits (Tab1[0]).
         */
+        printf("Resp Status"); 
             if(Length>=9)
             {
                         printf(":");printf("Table7:");printbit(SubMessage[0],4,7);printf(" EEEE:");printbit(SubMessage[0],0,3);printf(" ");
@@ -167,13 +210,46 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                         printf("Tab1[0]:%d",(printbit(SubMessage[7],0,1)<<8)+(printbit(SubMessage[8],0,7)));printf(" ");          
             }
         break;
+        case Resp_Tid:
+        {
+            printf("ResTid:");
+            if(Length==0x1b)
+            {
+                printf("State %02x",SubMessage[14]);printf(" ");
+                int LotId=(SubMessage[15]<<24)+(SubMessage[16]<<16)+(SubMessage[17]<<8)+SubMessage[18];
+                printf("Lot=%02x%02x%02x%02x(L%d)",SubMessage[15],SubMessage[16],SubMessage[17],SubMessage[18],LotId);printf(" ");
+                printf("Tid=%02x%02x%02x%02x",SubMessage[19],SubMessage[20],SubMessage[21],SubMessage[22]);printf(" ");
+                printf("Pod Add=%02x%02x%02x%02x",SubMessage[23],SubMessage[24],SubMessage[25],SubMessage[26]);printf(" "); 
+            }
+            if(Length==0x15)    
+            {
+                printf("State %02x",SubMessage[7]);printf(" ");
+                int LotId=(SubMessage[8]<<24)+(SubMessage[9]<<16)+(SubMessage[10]<<8)+SubMessage[11];
+                int Tid=(SubMessage[12]<<24)+(SubMessage[13]<<16)+(SubMessage[14]<<8)+SubMessage[15];
+                printf("Lot=%02x%02x%02x%02x(L%d)",SubMessage[8],SubMessage[9],SubMessage[10],SubMessage[11],LotId);printf(" ");
+                printf("Tid=%02x%02x%02x%02x",SubMessage[12],SubMessage[13],SubMessage[14],SubMessage[15]);printf(" ");
+                printf("RSSI=%02x",SubMessage[16]);printf(" ");
+                printf("Pod Add=%02x%02x%02x%02x",SubMessage[17],SubMessage[18],SubMessage[19],SubMessage[20]);printf(" "); 
+            }
+        }   
+        break; 
+        case Resp02:
+        //https://github.com/openaps/openomni/wiki/Response-02
+        {
+            printf("Resp02:");
+            for(int i=0;i<Length;i++) printf("%02x",SubMessage[i]);
+        }
+        break;
         default:
+        printf(ANSI_COLOR_RED);
         printf("Submessage not parsed ");
         //for(int i=0;i<Length;i++) printf("%02x",SubMessage[i]);
         printf("\n");
+        
         break; 
 
     }
+    printf(ANSI_COLOR_RESET);
     
 }
 
@@ -627,8 +703,16 @@ int GetFSKSync(unsigned char Sym)
 //***************************************************************************************************
 //*********************************** RF LAYER *****************************************************
 //***************************************************************************************************
-
-
+//RF Process is 
+// Get U8 IQ sample at 1.3Msymbols (32*Omnipod symbol rate)
+// In order to remove DC spike, tuning of receiver is 325KHz above   
+// 1 : 1.3M U8 IQ -> 1.3M Complex float
+// 2 : NCO +325Khz
+// 3 : Decimation by 4
+// 4 : FM Demodulation 
+// 5 : Decision with number of transition inside a window of 8 sample
+// Todo : Between 2 and 3, make a low pass filtering to avoid replicant signals
+// After 3: Make a matched filter (correlator) with conjugate signal of SYNC signal 
 
     
 
@@ -676,7 +760,7 @@ void InitRF(void)
       
 }
 
-     
+   
 int ProcessRF()
 {
             
