@@ -122,7 +122,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         {
             printf("POD Add=%02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");
             printf("Unknwown %02x",SubMessage[5]);printf(" ");
-            printf("Date %02x%02x%02x%02x%02x",SubMessage[6],SubMessage[7],SubMessage[8],SubMessage[9],SubMessage[10]);
+            printf("Date %02x%02x%02x%02x%02x (%d/%d/---)",SubMessage[6],SubMessage[7],SubMessage[8],SubMessage[9],SubMessage[10],SubMessage[6],SubMessage[7]);
 
             if(Length==0x13)
             {
@@ -180,13 +180,18 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         break;
         case Cmd_CancelBolus:
         //https://github.com/openaps/openomni/wiki/Command-1F        
-         printf("Cancel Bolus:");
+         printf("Cancel :");
         printf("Nonce %02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");
+        printf("Type %x(%s)",SubMessage[4]&0x3,TypeInsulin[SubMessage[4]&0x3]);
         break;
-        case Cmd_SyncTime:printf("SyncTime???\n");break;
+        case Cmd_SyncTime:
         //https://github.com/openaps/openomni/wiki/Command-19
-
-
+        printf("CancelTime:");   
+        printf("Nonce %02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");     
+        uint Time=((SubMessage[4]&0x1)<<8)|SubMessage[5];
+        printf("for %d minutes",(Time+15));
+        break;
+        
         case Resp_Status: 
         //https://github.com/openaps/openomni/wiki/Status-response-1D
         /*The 1D response has the following form:
@@ -207,8 +212,18 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                        
                         printf("Event14:");printbit(SubMessage[5],7,7);printf(" ");
                         printf("Internal value:");printbit(SubMessage[5],0,6);printbit(SubMessage[6],7,7);printf(" ");
-                        printf("Tab1[1]:");printbit(SubMessage[6],0,6);printbit(SubMessage[7],7,2);printf(" ");
-                        printf("Tab1[0]:%d",(printbit(SubMessage[7],0,1)<<8)+(printbit(SubMessage[8],0,7)));printf(" ");          
+                        printf("Minutes Actives %d",((SubMessage[5]&0x3F)<<6)+(SubMessage[6]>>7));printf(" ");
+
+                        //printf("Tab1[1]:");printbit(SubMessage[6],0,6);printbit(SubMessage[7],2,7);printf(" ");
+                        printf("Tab1[1]:%04x",((SubMessage[6]&0x7F)<<6)+((SubMessage[7]>>2)&0x3F));printf(" ");
+                        int Reservoir=(((SubMessage[6]&0x03)<<6)+(SubMessage[7]>>2));
+                        if((Reservoir&0xFF)!=0xFF)
+                            printf("Reservoir Level %0.01fU",(((SubMessage[6]&0x03)<<6)+(SubMessage[7]>>2))*50.0/256.0);  
+                        else
+                            printf("Reservoir Level %0.01fU",200.0-((SubMessage[6]&0x7F)>>2)*1);  // 200U is the max, POD has maybe not sensor over 50 to measure
+
+                        printf("Tab1[0]:%04x",((SubMessage[7]&0x3)<<6)+(SubMessage[8]));printf(" ");
+
             }
         break;
         case Resp_Tid:
@@ -217,6 +232,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
             printf("ResTid:");
             if(Length==0x1b)
             {
+                printf("PM %d.%d.%d/PI %d.%d.%d.",SubMessage[7],SubMessage[8],SubMessage[9],SubMessage[10],SubMessage[11],SubMessage[12]);printf(" ");
                 printf("State %02x",SubMessage[14]);printf(" ");
                 int LotId=(SubMessage[15]<<24)+(SubMessage[16]<<16)+(SubMessage[17]<<8)+SubMessage[18];
                 printf("Lot=%02x%02x%02x%02x(L%d)",SubMessage[15],SubMessage[16],SubMessage[17],SubMessage[18],LotId);printf(" ");
@@ -225,6 +241,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
             }
             if(Length==0x15)    
             {
+                printf("PM %d.%d.%d/PI %d.%d.%d.",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3],SubMessage[4],SubMessage[5]);printf(" ");
                 printf("State %02x",SubMessage[7]);printf(" ");
                 int LotId=(SubMessage[8]<<24)+(SubMessage[9]<<16)+(SubMessage[10]<<8)+SubMessage[11];
                 int Tid=(SubMessage[12]<<24)+(SubMessage[13]<<16)+(SubMessage[14]<<8)+SubMessage[15];
