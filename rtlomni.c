@@ -64,12 +64,131 @@ FILE *DebugFM=NULL;
 #endif
 
 
+#define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_YELLOW  "\x1b[33m"
+#define ANSI_COLOR_BLUE    "\x1b[34m"
+#define ANSI_COLOR_MAGENTA "\x1b[35m"
+#define ANSI_COLOR_CYAN    "\x1b[36m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
+
+
 //***************************************************************************************************
 //*********************************** NONCE GENERATION***********************************************
 //***************************************************************************************************
+#define MAX_NOUNCES_PROCESS 500
+
+unsigned long *TabNounce=NULL;
+unsigned long mlot=0,mtid=0;
+unsigned long a7[18];
+
+int GeneralIndexNounce=-1;
+
+unsigned long GenerateEntryNonce()
+{
+        a7[0] = ((a7[0] >> 16) + (a7[0] & 0xFFFF) * 0x5D7F) & 0xFFFFFFFF;
+        a7[1] = ((a7[1] >> 16) + (a7[1] & 0xFFFF) * 0x8CA0) & 0xFFFFFFFF;
+        return ((a7[1] + (a7[0] << 16)) & 0xFFFFFFFF);
+}
+
+void InitNounce(unsigned long lot, unsigned long tid)
+{
+         unsigned long Nonce=0;
+        unsigned char  byte_F9=0; 
+        if(TabNounce==NULL)
+        {    
+            TabNounce=(unsigned long*)malloc(MAX_NOUNCES_PROCESS*sizeof(unsigned long));
+        }
+        if((mlot==lot)&&(mtid==tid)) return;
+        mlot=lot;
+        mtid=tid;
+        a7[0]=(lot & 0xFFFF) + 0x55543DC3 + (lot >> 16);
+        a7[0]&=0xFFFFFFFF;
+        a7[1]=(tid & 0xFFFF) + 0xAAAAE44E + (tid >> 16);
+        a7[1]&=0xFFFFFFFF;
+       
+        printf("lot=%lx tid=%lx\n",mlot,mtid);
+
+        for(int i=2;i<18;i++)
+        {
+           a7[i]=GenerateEntryNonce();      
+        } 
+        
+        byte_F9 = (a7[0] + a7[1]) & 0xF; 
+        for(int i=0;i<=MAX_NOUNCES_PROCESS;i++)
+        {
+
+            Nonce=a7[2+byte_F9];
+            TabNounce[i]=Nonce;
+            a7[2 + byte_F9] = GenerateEntryNonce();
+            byte_F9=Nonce&0xF;
+
+        }
+        
+        
+}
 
 
+unsigned long GetNounce(int IndexNounce)
+{
+   if(TabNounce==NULL) {/*printf("Nonce not init\n");*/return 0;}
+    return TabNounce[IndexNounce];
+}
 
+int CheckNonce(unsigned long Nounce)
+{
+    
+    for(int i=0;i<MAX_NOUNCES_PROCESS;i++)
+    {
+      // printf("\n %lx",GetNounce(i)); 
+       if(GetNounce(i)==Nounce)
+       {
+          if(GeneralIndexNounce==-1) GeneralIndexNounce=i;
+          
+          if((GeneralIndexNounce==i)||(GeneralIndexNounce+1==(i)))
+            GeneralIndexNounce=i;
+           else
+           {
+              printf(ANSI_COLOR_RED);   
+             printf("--Nonce skipped--");
+             printf(ANSI_COLOR_GREEN);      
+           } 
+              
+          return i;
+        }
+    }
+    return -1;
+}
+
+
+/*def generate_nonces(lot, tid, count):
+  a7 = [0]*21
+  a7[0] = (lot & 0xFFFF) + 0x55543DC3 + (lot >> 16)
+  a7[0] = a7[0] & 0xFFFFFFFF
+  a7[1] = (tid & 0xFFFF) + 0xAAAAE44E + (tid >> 16)
+  a7[1] = a7[1] & 0xFFFFFFFF
+
+  def generate_entry():
+    a7[0] = ((a7[0] >> 16) + (a7[0] & 0xFFFF) * 0x5D7F) & 0xFFFFFFFF
+    a7[1] = ((a7[1] >> 16) + (a7[1] & 0xFFFF) * 0x8CA0) & 0xFFFFFFFF
+    return (a7[1] + (a7[0] << 16)) & 0xFFFFFFFF
+
+  for i in range(0, 16):
+    a7[2 + i] = generate_entry()
+
+  byte_F9 = (a7[0] + a7[1]) & 0xF
+
+  nonces = []
+
+  for i in range(count):
+    nonce = a7[2 + byte_F9]
+    #print "Nonce: %08x" % nonce
+    a7[2 + byte_F9] = generate_entry()
+    byte_F9 = nonce & 0xf
+    nonces.append(nonce)
+
+  return nonces
+*/
 
 //***************************************************************************************************
 //*********************************** SUB-MESSAGE LAYER ******************************************************
@@ -105,13 +224,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
     enum {Resp_Status=0x1D,Resp_Tid=0x01,Resp02=0x02};
     const char *TypeInsulin[]={"Basal","Temp Basal","Bolus"};
 
-    #define ANSI_COLOR_RED     "\x1b[31m"
-#define ANSI_COLOR_GREEN   "\x1b[32m"
-#define ANSI_COLOR_YELLOW  "\x1b[33m"
-#define ANSI_COLOR_BLUE    "\x1b[34m"
-#define ANSI_COLOR_MAGENTA "\x1b[35m"
-#define ANSI_COLOR_CYAN    "\x1b[36m"
-#define ANSI_COLOR_RESET   "\x1b[0m"
+   
 
     printf(ANSI_COLOR_GREEN);
     printf("(%d)->",Length);
@@ -126,10 +239,12 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
 
             if(Length==0x13)
             {
-                 int LotId=(SubMessage[15]<<24)+(SubMessage[16]<<16)+(SubMessage[17]<<8)+SubMessage[18];       
-                printf("Lot=%02x%02x%02x%02x(L%d)",SubMessage[11],SubMessage[12],SubMessage[13],SubMessage[14],LotId);printf(" ");
-                printf("Tid=%02x%02x%02x%02x",SubMessage[15],SubMessage[16],SubMessage[17],SubMessage[18]);printf(" ");
-
+                 unsigned long Lot=(((unsigned long)SubMessage[11])<<24)|(((unsigned long)SubMessage[12])<<16)|(((unsigned long)SubMessage[13])<<8)|(((unsigned long)SubMessage[14]));
+                 unsigned long Tid=(((unsigned long)SubMessage[15])<<24)|(((unsigned long)SubMessage[16])<<16)|(((unsigned long)SubMessage[17])<<8)|(((unsigned long)SubMessage[18])); 
+                printf("Lot=%lx(L%ld)",Lot,Lot);printf(" ");
+                printf("Tid=%lx(T%ld)",Tid,Tid);printf(" ");
+                
+               
             }
         }    
         break;
@@ -142,11 +257,16 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
             printf("Get Status type %02x",SubMessage[0]);break;  
         case Cmd_InsulinSchedule:
             //https://github.com/openaps/openomni/wiki/Insulin-Schedule-Command
+        {
             printf("Insulin Schedule:"); 
-            printf("Nonce:%02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");
+             unsigned long CurrentNonce=0;
+            CurrentNonce=(((unsigned long)SubMessage[0])<<24)|(((unsigned long)SubMessage[1])<<16)|(((unsigned long)SubMessage[2])<<8)|(((unsigned long)SubMessage[3]));
+             int IndexNounce=CheckNonce(CurrentNonce);
+        
+            printf("Nonce:%02x%02x%02x%02x(%d)",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3],IndexNounce);printf(" ");
             printf("Type:%02x %s",SubMessage[4],TypeInsulin[SubMessage[4]&0x3]);printf(" ");
             int Type=SubMessage[4];
-            
+                    
 
             switch(Type) // To be completed with other modes : Fixme !
             {
@@ -169,6 +289,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                 }    
                 break;
             }
+        }
         break;
         case Cmd_InsulinScheduleExtra:
         //https://github.com/openaps/openomni/wiki/Command-17---Bolus-extra    
@@ -180,16 +301,37 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         break;
         case Cmd_CancelBolus:
         //https://github.com/openaps/openomni/wiki/Command-1F        
-         printf("Cancel :");
-        printf("Nonce %02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");
-        printf("Type %x(%s)",SubMessage[4]&0x3,TypeInsulin[SubMessage[4]&0x3]);
+        {
+             printf("Cancel :");
+            
+            unsigned long CurrentNonce=0;
+            CurrentNonce=(((unsigned long)SubMessage[0])<<24)|(((unsigned long)SubMessage[1])<<16)|(((unsigned long)SubMessage[2])<<8)|(((unsigned long)SubMessage[3]));
+            int IndexNounce=CheckNonce(CurrentNonce);
+            printf("Nonce %02x%02x%02x%02x(%d)",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3],IndexNounce);printf(" ");
+            printf("Type %x(%s)",SubMessage[4]&0x3,TypeInsulin[SubMessage[4]&0x3]);
+        }
         break;
+        case 0x13 : 
+        //https://github.com/NightscoutFoundation/omni-firmware/blob/master/c_code/process_input_message_and_create_output_message.c#L479
+         printf(ANSI_COLOR_RED);
+        printf("Submessage need to be analyzed ");
+        printf("\n");
+        break;
+        
         case Cmd_SyncTime:
         //https://github.com/openaps/openomni/wiki/Command-19
-        printf("CancelTime:");   
-        printf("Nonce %02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");     
-        uint Time=((SubMessage[4]&0x1)<<8)|SubMessage[5];
-        printf("for %d minutes",(Time+15));
+        {
+            printf("CancelTime:");   
+            unsigned long CurrentNonce=0;
+            CurrentNonce=(((unsigned long)SubMessage[0])<<24)|(((unsigned long)SubMessage[1])<<16)|(((unsigned long)SubMessage[2])<<8)|(((unsigned long)SubMessage[3]));
+            int IndexNounce=CheckNonce(CurrentNonce);
+            
+            printf("Nonce %02x%02x%02x%02x(%d)",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3],IndexNounce);printf(" ");     
+                   
+            
+            uint Time=((SubMessage[4]&0x1)<<8)|SubMessage[5];
+            printf("for %d minutes",(Time+15));
+        }
         break;
         
         case Resp_Status: 
@@ -234,19 +376,23 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
             {
                 printf("PM %d.%d.%d/PI %d.%d.%d.",SubMessage[7],SubMessage[8],SubMessage[9],SubMessage[10],SubMessage[11],SubMessage[12]);printf(" ");
                 printf("State %02x",SubMessage[14]);printf(" ");
-                int LotId=(SubMessage[15]<<24)+(SubMessage[16]<<16)+(SubMessage[17]<<8)+SubMessage[18];
-                printf("Lot=%02x%02x%02x%02x(L%d)",SubMessage[15],SubMessage[16],SubMessage[17],SubMessage[18],LotId);printf(" ");
-                printf("Tid=%02x%02x%02x%02x",SubMessage[19],SubMessage[20],SubMessage[21],SubMessage[22]);printf(" ");
+                 unsigned long Lot=(((unsigned long)SubMessage[15])<<24)|(((unsigned long)SubMessage[16])<<16)|(((unsigned long)SubMessage[17])<<8)|(((unsigned long)SubMessage[18]));
+                 unsigned long Tid=(((unsigned long)SubMessage[19])<<24)|(((unsigned long)SubMessage[20])<<16)|(((unsigned long)SubMessage[21])<<8)|(((unsigned long)SubMessage[22])); 
+                 InitNounce(Lot,Tid);
+                printf("Lot=%lx(L%ld)",Lot,Lot);printf(" ");
+                printf("Tid=%lx(T%ld",Tid,Tid);printf(" ");
                 printf("Pod Add=%02x%02x%02x%02x",SubMessage[23],SubMessage[24],SubMessage[25],SubMessage[26]);printf(" "); 
             }
             if(Length==0x15)    
             {
                 printf("PM %d.%d.%d/PI %d.%d.%d.",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3],SubMessage[4],SubMessage[5]);printf(" ");
                 printf("State %02x",SubMessage[7]);printf(" ");
-                int LotId=(SubMessage[8]<<24)+(SubMessage[9]<<16)+(SubMessage[10]<<8)+SubMessage[11];
-                int Tid=(SubMessage[12]<<24)+(SubMessage[13]<<16)+(SubMessage[14]<<8)+SubMessage[15];
-                printf("Lot=%02x%02x%02x%02x(L%d)",SubMessage[8],SubMessage[9],SubMessage[10],SubMessage[11],LotId);printf(" ");
-                printf("Tid=%02x%02x%02x%02x",SubMessage[12],SubMessage[13],SubMessage[14],SubMessage[15]);printf(" ");
+                unsigned long Lot=(((unsigned long)SubMessage[8])<<24)|(((unsigned long)SubMessage[9])<<16)|(((unsigned long)SubMessage[10])<<8)|(((unsigned long)SubMessage[11]));
+                unsigned long Tid=(((unsigned long)SubMessage[12])<<24)|(((unsigned long)SubMessage[13])<<16)|(((unsigned long)SubMessage[14])<<8)|(((unsigned long)SubMessage[15])); 
+                 InitNounce(Lot,Tid);
+                
+                printf("Lot=%lx(L%ld)",Lot,Lot);printf(" ");
+                printf("Tid=%lx(T%ld)",Tid,Tid);printf(" ");
                 printf("RSSI=%02x",SubMessage[16]);printf(" ");
                 printf("Pod Add=%02x%02x%02x%02x",SubMessage[17],SubMessage[18],SubMessage[19],SubMessage[20]);printf(" "); 
             }
@@ -967,7 +1113,8 @@ int main(int argc, char*argv[])
 
    
    
- 
+  //InitNounce(0x0000a848,0x0007558d);
+    
       
    InitRF();
           
