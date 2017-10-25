@@ -77,6 +77,7 @@ FILE *DebugFM=NULL;
 //*********************************** NONCE GENERATION***********************************************
 //***************************************************************************************************
 #define MAX_NOUNCES_PROCESS 500
+#define MAX_NONCE_RESYNC 100
 
 unsigned long *TabNounce=NULL;
 unsigned long mlot=0,mtid=0;
@@ -99,9 +100,11 @@ void InitNounce(unsigned long lot, unsigned long tid)
         {    
             TabNounce=(unsigned long*)malloc(MAX_NOUNCES_PROCESS*sizeof(unsigned long));
         }
+        
         if((mlot==lot)&&(mtid==tid)) return;
         mlot=lot;
         mtid=tid;
+        
         a7[0]=(lot & 0xFFFF) + 0x55543DC3 + (lot >> 16);
         a7[0]&=0xFFFFFFFF;
         a7[1]=(tid & 0xFFFF) + 0xAAAAE44E + (tid >> 16);
@@ -137,58 +140,36 @@ unsigned long GetNounce(int IndexNounce)
 
 int CheckNonce(unsigned long Nounce)
 {
-    
-    for(int i=0;i<MAX_NOUNCES_PROCESS;i++)
+    for(int j=0;j<MAX_NONCE_RESYNC;j++)
     {
-      // printf("\n %lx",GetNounce(i)); 
-       if(GetNounce(i)==Nounce)
-       {
-          if(GeneralIndexNounce==-1) GeneralIndexNounce=i;
-          
-          if((GeneralIndexNounce==i)||(GeneralIndexNounce+1==(i)))
-            GeneralIndexNounce=i;
-           else
+        for(int i=0;i<MAX_NOUNCES_PROCESS;i++)
+        {
+          // printf("\n %lx",GetNounce(i)); 
+           if(GetNounce(i)==Nounce)
            {
-              printf(ANSI_COLOR_RED);   
-             printf("--Nonce skipped--");
-             printf(ANSI_COLOR_GREEN);      
-           } 
+              if(GeneralIndexNounce==-1) GeneralIndexNounce=i;
               
-          return i;
+              if((GeneralIndexNounce==i)||(GeneralIndexNounce+1==(i)))
+                GeneralIndexNounce=i;
+               else
+               {
+                  printf(ANSI_COLOR_RED);   
+                 printf("--Nonce skipped--");
+                 printf(ANSI_COLOR_GREEN);      
+               } 
+              
+              return i;
+            }
         }
+        GeneralIndexNounce=-1;
+        //The nonce reset simply increments a counter that is added to the lot number. If you use Lot 42540, TID 310475 you get the new nonce 2e76fcee and all is fine.
+         // Search if nonce errors
+        InitNounce(mlot+1,mtid);
     }
     return -1;
 }
 
 
-/*def generate_nonces(lot, tid, count):
-  a7 = [0]*21
-  a7[0] = (lot & 0xFFFF) + 0x55543DC3 + (lot >> 16)
-  a7[0] = a7[0] & 0xFFFFFFFF
-  a7[1] = (tid & 0xFFFF) + 0xAAAAE44E + (tid >> 16)
-  a7[1] = a7[1] & 0xFFFFFFFF
-
-  def generate_entry():
-    a7[0] = ((a7[0] >> 16) + (a7[0] & 0xFFFF) * 0x5D7F) & 0xFFFFFFFF
-    a7[1] = ((a7[1] >> 16) + (a7[1] & 0xFFFF) * 0x8CA0) & 0xFFFFFFFF
-    return (a7[1] + (a7[0] << 16)) & 0xFFFFFFFF
-
-  for i in range(0, 16):
-    a7[2 + i] = generate_entry()
-
-  byte_F9 = (a7[0] + a7[1]) & 0xF
-
-  nonces = []
-
-  for i in range(count):
-    nonce = a7[2 + byte_F9]
-    #print "Nonce: %08x" % nonce
-    a7[2 + byte_F9] = generate_entry()
-    byte_F9 = nonce & 0xf
-    nonces.append(nonce)
-
-  return nonces
-*/
 
 //***************************************************************************************************
 //*********************************** SUB-MESSAGE LAYER ******************************************************
@@ -1113,7 +1094,7 @@ int main(int argc, char*argv[])
 
    
    
-  //InitNounce(0x0000a848,0x0007558d);
+  InitNounce(43080,480653);
     
       
    InitRF();
