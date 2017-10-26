@@ -76,8 +76,9 @@ FILE *DebugFM=NULL;
 //***************************************************************************************************
 //*********************************** NONCE GENERATION***********************************************
 //***************************************************************************************************
-#define MAX_NOUNCES_PROCESS 500
-#define MAX_NONCE_RESYNC 100
+
+#define MAX_NOUNCES_PROCESS 1000
+#define MAX_NONCE_RESYNC 256
 
 unsigned long *TabNounce=NULL;
 unsigned long mlot=0,mtid=0;
@@ -92,7 +93,7 @@ unsigned long GenerateEntryNonce()
         return ((a7[1] + (a7[0] << 16)) & 0xFFFFFFFF);
 }
 
-void InitNounce(unsigned long lot, unsigned long tid)
+void InitNounce(unsigned long lot, unsigned long tid,int F7,int F8)
 {
          unsigned long Nonce=0;
         unsigned char  byte_F9=0; 
@@ -101,7 +102,7 @@ void InitNounce(unsigned long lot, unsigned long tid)
             TabNounce=(unsigned long*)malloc(MAX_NOUNCES_PROCESS*sizeof(unsigned long));
         }
         
-        if((mlot==lot)&&(mtid==tid)) return;
+        //if((mlot==lot)&&(mtid==tid)) return;
         mlot=lot;
         mtid=tid;
         
@@ -110,14 +111,21 @@ void InitNounce(unsigned long lot, unsigned long tid)
         a7[1]=(tid & 0xFFFF) + 0xAAAAE44E + (tid >> 16);
         a7[1]&=0xFFFFFFFF;
        
-        printf("lot=%lx tid=%lx\n",mlot,mtid);
+        
+       
+            a7[0]+=(F7&0xFF);
+            a7[1]+=(F8&0xFF);
+        //printf("A7_0=%lx A7_1=%lx\n",a7[0],a7[1]);
 
         for(int i=2;i<18;i++)
         {
            a7[i]=GenerateEntryNonce();      
         } 
         
-        byte_F9 = (a7[0] + a7[1]) & 0xF; 
+        if(F7==0)
+            byte_F9 = (a7[0] + a7[1]) & 0xF; 
+        else
+            byte_F9=1;
         for(int i=0;i<=MAX_NOUNCES_PROCESS;i++)
         {
 
@@ -140,31 +148,37 @@ unsigned long GetNounce(int IndexNounce)
 
 int CheckNonce(unsigned long Nounce)
 {
-    for(int j=0;j<MAX_NONCE_RESYNC;j++)
+    for(int k=0;k<MAX_NONCE_RESYNC;k++)
     {
-        for(int i=0;i<MAX_NOUNCES_PROCESS;i++)
+        for(int j=0;j<MAX_NONCE_RESYNC;j++)
         {
-          // printf("\n %lx",GetNounce(i)); 
-           if(GetNounce(i)==Nounce)
-           {
-              if(GeneralIndexNounce==-1) GeneralIndexNounce=i;
-              
-              if((GeneralIndexNounce==i)||(GeneralIndexNounce+1==(i)))
-                GeneralIndexNounce=i;
-               else
+            for(int i=0;i<MAX_NOUNCES_PROCESS;i++)
+            {
+
+               if(GetNounce(i)==Nounce)
                {
-                  printf(ANSI_COLOR_RED);   
-                 printf("--Nonce skipped--");
-                 printf(ANSI_COLOR_GREEN);      
-               } 
-              
-              return i;
+                  if(j!=0) printf("F7 %d F8 %d",j,k);   
+                  if(GeneralIndexNounce==-1) GeneralIndexNounce=i;
+                  
+                  if((GeneralIndexNounce==i)||(GeneralIndexNounce+1==(i)))
+                    GeneralIndexNounce=i;
+                   else
+                   {
+                      printf(ANSI_COLOR_RED);   
+                     printf("--Nonce skipped %d/%d--",GeneralIndexNounce,i);
+                     GeneralIndexNounce=i; // We set with the new index found   
+                     printf(ANSI_COLOR_GREEN);      
+                   } 
+                  
+                  return i;
+                }
             }
+            GeneralIndexNounce=-1;
+            //The nonce reset simply increments a counter that is added to the lot number. If you use Lot 42540, TID 310475 you get the new nonce 2e76fcee and all is fine.
+             // Search if nonce errors
+            
+            InitNounce(mlot,mtid,j,k);
         }
-        GeneralIndexNounce=-1;
-        //The nonce reset simply increments a counter that is added to the lot number. If you use Lot 42540, TID 310475 you get the new nonce 2e76fcee and all is fine.
-         // Search if nonce errors
-        InitNounce(mlot+1,mtid);
     }
     return -1;
 }
@@ -199,15 +213,23 @@ unsigned char printbit(unsigned char Byte,int bitstart,int bitstop)
 
 }
 
-void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Length)
+void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Length,int SeqMessage)
 {
     enum {Cmd_GetConfig=3,Cmd_Pairing=7,Cmd_GetStatus=0xe,Cmd_InsulinScheduleExtra=0x17,Cmd_SyncTime=0x19,Cmd_InsulinSchedule=0x1a,Cmd_CancelBolus=0x1F};
-    enum {Resp_Status=0x1D,Resp_Tid=0x01,Resp02=0x02};
+    enum {Resp_Status=0x1D,Resp_Tid=0x01,Resp02=0x02,RespError=0x06};
     const char *TypeInsulin[]={"Basal","Temp Basal","Bolus"};
 
    
-
-    printf(ANSI_COLOR_GREEN);
+    if(Source==POD)
+    {    
+        printf(ANSI_COLOR_GREEN);
+        printf("#%d POD %02x",SeqMessage,Type);
+    }
+    if(Source==PDM)
+    {    
+        printf(ANSI_COLOR_BLUE);
+        printf("#%d PDM %02x",SeqMessage,Type);
+    }
     printf("(%d)->",Length);
     switch(Type)
     {
@@ -342,8 +364,8 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                         int Reservoir=(((SubMessage[6]&0x03)<<6)+(SubMessage[7]>>2));
                         if((Reservoir&0xFF)!=0xFF)
                             printf("Reservoir Level %0.01fU",(((SubMessage[6]&0x03)<<6)+(SubMessage[7]>>2))*50.0/256.0);  
-                        else
-                            printf("Reservoir Level %0.01fU",200.0-((SubMessage[6]&0x7F)>>2)*1);  // 200U is the max, POD has maybe not sensor over 50 to measure
+                        /*else
+                            printf("Reservoir Level %0.01fU",200.0-((SubMessage[6]&0x7F)>>2)*1);  // 200U is the max, POD has maybe not sensor over 50 to measure*/
 
                         printf("Tab1[0]:%04x",((SubMessage[7]&0x3)<<6)+(SubMessage[8]));printf(" ");
 
@@ -359,7 +381,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                 printf("State %02x",SubMessage[14]);printf(" ");
                  unsigned long Lot=(((unsigned long)SubMessage[15])<<24)|(((unsigned long)SubMessage[16])<<16)|(((unsigned long)SubMessage[17])<<8)|(((unsigned long)SubMessage[18]));
                  unsigned long Tid=(((unsigned long)SubMessage[19])<<24)|(((unsigned long)SubMessage[20])<<16)|(((unsigned long)SubMessage[21])<<8)|(((unsigned long)SubMessage[22])); 
-                 InitNounce(Lot,Tid);
+                 InitNounce(Lot,Tid,0,0);
                 printf("Lot=%lx(L%ld)",Lot,Lot);printf(" ");
                 printf("Tid=%lx(T%ld",Tid,Tid);printf(" ");
                 printf("Pod Add=%02x%02x%02x%02x",SubMessage[23],SubMessage[24],SubMessage[25],SubMessage[26]);printf(" "); 
@@ -370,7 +392,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                 printf("State %02x",SubMessage[7]);printf(" ");
                 unsigned long Lot=(((unsigned long)SubMessage[8])<<24)|(((unsigned long)SubMessage[9])<<16)|(((unsigned long)SubMessage[10])<<8)|(((unsigned long)SubMessage[11]));
                 unsigned long Tid=(((unsigned long)SubMessage[12])<<24)|(((unsigned long)SubMessage[13])<<16)|(((unsigned long)SubMessage[14])<<8)|(((unsigned long)SubMessage[15])); 
-                 InitNounce(Lot,Tid);
+                 InitNounce(Lot,Tid,0,0);
                 
                 printf("Lot=%lx(L%ld)",Lot,Lot);printf(" ");
                 printf("Tid=%lx(T%ld)",Tid,Tid);printf(" ");
@@ -386,10 +408,30 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
             for(int i=0;i<Length;i++) printf("%02x",SubMessage[i]);
         }
         break;
+        case RespError:
+        //https://github.com/NightscoutFoundation/omni-firmware/blob/e7a217005c565c020a9f3b9f73e06d04a52b2b4c/c_code/process_input_message_and_create_output_message.c#L871
+        //https://github.com/NightscoutFoundation/omni-firmware/blob/e7a217005c565c020a9f3b9f73e06d04a52b2b4c/c_code/generate_output.c#L344
+        {
+             printf("POD Error:");
+             int Type=SubMessage[0];
+             printf("Type:%02x ",Type);
+             switch(Type)
+             {
+                case 0x14:
+                {
+                    //(word_F5 + crc_table[byte_FA] + lot_number + serial_number) ^ word_F7;
+                    //https://github.com/NightscoutFoundation/omni-firmware/blob/e7a217005c565c020a9f3b9f73e06d04a52b2b4c/c_code/nonce.c#L5
+                    printf("Nonce ErrorHx=%02x%02x",SubMessage[1],SubMessage[2]);
+                }
+                break;
+             }   
+                
+        }
+        break;
         default:
         printf(ANSI_COLOR_RED);
-        printf("Submessage not parsed ");
-        //for(int i=0;i<Length;i++) printf("%02x",SubMessage[i]);
+        printf("Submessage not parsed :%02x(%d)",Type,Length);
+        for(int i=0;i<Length;i++) printf("%02x",SubMessage[i]);
         printf("\n");
         
         break; 
@@ -406,12 +448,12 @@ void ParseSubMessage(int Seq,int Source,unsigned char *Message,int Length,int Se
     int i=0;
     int nbsub=0;
     //printf("\nSUBMESSAGES:\n");
-    printf("Packet %d Message %d-------------------------------------------\n",Seq,SeqMessage);
+    //printf("Packet %d Message %d-------------------------------------------\n",Seq,SeqMessage);
     while(i<Length)
     {
-        if(Source==POD) printf("POD:"); else printf("PDM:");
+        //if(Source==POD) printf("POD:"); else printf("PDM:");
         //printf("(%d:%d)\tCommand %02x->",Seq,nbsub,Message[i]);    
-        printf("%02x->",Message[i]);    
+        //printf("%02x->",Message[i]);    
         int Type=Message[i++];
         unsigned char Submessage[255];
         //printf("%02x+",Message[i]);
@@ -421,10 +463,10 @@ void ParseSubMessage(int Seq,int Source,unsigned char *Message,int Length,int Se
         for(int j=0;j<SubLength;j++)
         {    
            Submessage[j]=Message[i++];
-           printf("%02x",Submessage[j]);
+           //printf("%02x",Submessage[j]);
            
         }
-        InterpretSubMessage(Source,Type,Submessage,SubLength); 
+        InterpretSubMessage(Source,Type,Submessage,SubLength,SeqMessage); 
         nbsub++;
  
         printf("\n");        
@@ -496,14 +538,14 @@ void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMes
     if(SeqMessage!=-1) MemSeqMessage=SeqMessage;
     if(Source==ACK) 
     {
-        printf("ACK %d: ",Seq);
+        //printf("ACK %d: ",Seq);
         for(int j=0;j<Length;j++)
         {    
            
-           printf("%02x",Packet[j]);
+           //printf("%02x",Packet[j]);
            
         }
-        printf("\n");
+        //printf("\n");
         return;
     }
     if((Source==POD)||(Source==PDM))
@@ -705,7 +747,7 @@ void ParsePacket(void)
         else
         {
             Seq=ActualSEQ;
-            printf("BAD CRC - CON\n");
+            //printf("BAD CRC - CON\n");
         }
        ProcessedPacket=1;
     }
@@ -725,7 +767,7 @@ void ParsePacket(void)
         else
         {
             Seq=ActualSEQ;
-            printf("BAD CRC - ACK\n");
+            //printf("BAD CRC - ACK\n");
         }
        ProcessedPacket=1;
         
@@ -744,7 +786,9 @@ void ParsePacket(void)
                
         }
         else
-            printf("---------------- MISS ONE PACKET (%d/%d)------------------\n",Seq,ActualSEQ);
+        {   
+            //printf("---------------- MISS ONE PACKET (%d/%d)------------------\n",Seq,ActualSEQ);
+        }
          ActualSEQ=Seq;
     }    
 
@@ -1094,7 +1138,7 @@ int main(int argc, char*argv[])
 
    
    
-  InitNounce(43080,480653);
+  InitNounce(43080,480653,0,0);
     
       
    InitRF();
