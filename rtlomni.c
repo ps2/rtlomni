@@ -72,6 +72,36 @@ FILE *DebugFM=NULL;
 #define ANSI_COLOR_CYAN    "\x1b[36m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
+//*************************************DATA DEFINITION***********************************************
+unsigned int crc_table16[] = {0x0000,0x8005,0x800f,0x000a,0x801b,0x001e,0x0014,0x8011,0x8033,
+               0x0036,0x003c,0x8039,0x0028,0x802d,0x8027,0x0022,0x8063,0x0066,
+               0x006c,0x8069,0x0078,0x807d,0x8077,0x0072,0x0050,0x8055,0x805f,
+               0x005a,0x804b,0x004e,0x0044,0x8041,0x80c3,0x00c6,0x00cc,0x80c9,
+               0x00d8,0x80dd,0x80d7,0x00d2,0x00f0,0x80f5,0x80ff,0x00fa,0x80eb,
+               0x00ee,0x00e4,0x80e1,0x00a0,0x80a5,0x80af,0x00aa,0x80bb,0x00be,
+               0x00b4,0x80b1,0x8093,0x0096,0x009c,0x8099,0x0088,0x808d,0x8087,
+               0x0082,0x8183,0x0186,0x018c,0x8189,0x0198,0x819d,0x8197,0x0192,
+               0x01b0,0x81b5,0x81bf,0x01ba,0x81ab,0x01ae,0x01a4,0x81a1,0x01e0,
+               0x81e5,0x81ef,0x01ea,0x81fb,0x01fe,0x01f4,0x81f1,0x81d3,0x01d6,
+               0x01dc,0x81d9,0x01c8,0x81cd,0x81c7,0x01c2,0x0140,0x8145,0x814f,
+               0x014a,0x815b,0x015e,0x0154,0x8151,0x8173,0x0176,0x017c,0x8179,
+               0x0168,0x816d,0x8167,0x0162,0x8123,0x0126,0x012c,0x8129,0x0138,
+               0x813d,0x8137,0x0132,0x0110,0x8115,0x811f,0x011a,0x810b,0x010e,
+               0x0104,0x8101,0x8303,0x0306,0x030c,0x8309,0x0318,0x831d,0x8317,
+               0x0312,0x0330,0x8335,0x833f,0x033a,0x832b,0x032e,0x0324,0x8321,
+               0x0360,0x8365,0x836f,0x036a,0x837b,0x037e,0x0374,0x8371,0x8353,
+               0x0356,0x035c,0x8359,0x0348,0x834d,0x8347,0x0342,0x03c0,0x83c5,
+               0x83cf,0x03ca,0x83db,0x03de,0x03d4,0x83d1,0x83f3,0x03f6,0x03fc,
+               0x83f9,0x03e8,0x83ed,0x83e7,0x03e2,0x83a3,0x03a6,0x03ac,0x83a9,
+               0x03b8,0x83bd,0x83b7,0x03b2,0x0390,0x8395,0x839f,0x039a,0x838b,
+               0x038e,0x0384,0x8381,0x0280,0x8285,0x828f,0x028a,0x829b,0x029e,
+               0x0294,0x8291,0x82b3,0x02b6,0x02bc,0x82b9,0x02a8,0x82ad,0x82a7,
+               0x02a2,0x82e3,0x02e6,0x02ec,0x82e9,0x02f8,0x82fd,0x82f7,0x02f2,
+               0x02d0,0x82d5,0x82df,0x02da,0x82cb,0x02ce,0x02c4,0x82c1,0x8243,
+               0x0246,0x024c,0x8249,0x0258,0x825d,0x8257,0x0252,0x0270,0x8275,
+               0x827f,0x027a,0x826b,0x026e,0x0264,0x8261,0x0220,0x8225,0x822f,
+               0x022a,0x823b,0x023e,0x0234,0x8231,0x8213,0x0216,0x021c,0x8219,
+               0x0208,0x820d,0x8207,0x0202};
 
 //***************************************************************************************************
 //*********************************** NONCE GENERATION***********************************************
@@ -86,6 +116,29 @@ unsigned long a7[18];
 
 int GeneralIndexNounce=-1;
 
+
+/*HX
+
+#define word_F3		(A7[19].word_hi)	// also AF[17]
+#define word_F5		(A7[19].word_lo)
+#define byte_F5		(A7[19].byte1)
+
+
+word output_nonce_computation_into_HX()
+{
+
+	return (word_F5 + crc_table[byte_FA] + lot_number + serial_number) ^ word_F7;
+}
+
+ret = 0x14;//return status = reset nonce
+				word_F7++; //Seed increment
+				dword_F3 = *(dword *)(bodyptr + 2); //Get the value from the message 851072aa
+                //WORD F5 could be low part of DWORD F3 thus 72AA ?
+				byte_FA = A_in; //Index POD waited
+				nonce_computation(1);
+*/
+
+
 unsigned long GenerateEntryNonce()
 {
         a7[0] = ((a7[0] >> 16) + (a7[0] & 0xFFFF) * 0x5D7F) & 0xFFFFFFFF;
@@ -93,7 +146,7 @@ unsigned long GenerateEntryNonce()
         return ((a7[1] + (a7[0] << 16)) & 0xFFFFFFFF);
 }
 
-void InitNounce(unsigned long lot, unsigned long tid,int F7,int F8)
+void InitNounce(unsigned long lot, unsigned long tid,int F7)
 {
          unsigned long Nonce=0;
         unsigned char  byte_F9=0; 
@@ -114,7 +167,7 @@ void InitNounce(unsigned long lot, unsigned long tid,int F7,int F8)
         
        
             a7[0]+=(F7&0xFF);
-            a7[1]+=(F8&0xFF);
+            //a7[1]+=(F8&0xFF); //F8 seeems always at zero : removed
         //printf("A7_0=%lx A7_1=%lx\n",a7[0],a7[1]);
 
         for(int i=2;i<18;i++)
@@ -125,7 +178,7 @@ void InitNounce(unsigned long lot, unsigned long tid,int F7,int F8)
         if(F7==0)
             byte_F9 = (a7[0] + a7[1]) & 0xF; 
         else
-            byte_F9=1;
+            byte_F9=(a7[0] + a7[1]) & 0xF;
         for(int i=0;i<=MAX_NOUNCES_PROCESS;i++)
         {
 
@@ -148,16 +201,16 @@ unsigned long GetNounce(int IndexNounce)
 
 int CheckNonce(unsigned long Nounce)
 {
-    for(int k=0;k<MAX_NONCE_RESYNC;k++)
-    {
+       
         for(int j=0;j<MAX_NONCE_RESYNC;j++)
         {
+             InitNounce(mlot,mtid,j);
             for(int i=0;i<MAX_NOUNCES_PROCESS;i++)
             {
 
                if(GetNounce(i)==Nounce)
                {
-                  if(j!=0) printf("F7 %d F8 %d",j,k);   
+                  if(j!=0) printf("F7(%d)",j);   
                   if(GeneralIndexNounce==-1) GeneralIndexNounce=i;
                   
                   if((GeneralIndexNounce==i)||(GeneralIndexNounce+1==(i)))
@@ -177,9 +230,9 @@ int CheckNonce(unsigned long Nounce)
             //The nonce reset simply increments a counter that is added to the lot number. If you use Lot 42540, TID 310475 you get the new nonce 2e76fcee and all is fine.
              // Search if nonce errors
             
-            InitNounce(mlot,mtid,j,k);
+           // InitNounce(mlot,mtid,j);
         }
-    }
+   
     return -1;
 }
 
@@ -381,7 +434,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                 printf("State %02x",SubMessage[14]);printf(" ");
                  unsigned long Lot=(((unsigned long)SubMessage[15])<<24)|(((unsigned long)SubMessage[16])<<16)|(((unsigned long)SubMessage[17])<<8)|(((unsigned long)SubMessage[18]));
                  unsigned long Tid=(((unsigned long)SubMessage[19])<<24)|(((unsigned long)SubMessage[20])<<16)|(((unsigned long)SubMessage[21])<<8)|(((unsigned long)SubMessage[22])); 
-                 InitNounce(Lot,Tid,0,0);
+                 InitNounce(Lot,Tid,0);
                 printf("Lot=%lx(L%ld)",Lot,Lot);printf(" ");
                 printf("Tid=%lx(T%ld",Tid,Tid);printf(" ");
                 printf("Pod Add=%02x%02x%02x%02x",SubMessage[23],SubMessage[24],SubMessage[25],SubMessage[26]);printf(" "); 
@@ -392,7 +445,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                 printf("State %02x",SubMessage[7]);printf(" ");
                 unsigned long Lot=(((unsigned long)SubMessage[8])<<24)|(((unsigned long)SubMessage[9])<<16)|(((unsigned long)SubMessage[10])<<8)|(((unsigned long)SubMessage[11]));
                 unsigned long Tid=(((unsigned long)SubMessage[12])<<24)|(((unsigned long)SubMessage[13])<<16)|(((unsigned long)SubMessage[14])<<8)|(((unsigned long)SubMessage[15])); 
-                 InitNounce(Lot,Tid,0,0);
+                 InitNounce(Lot,Tid,0);
                 
                 printf("Lot=%lx(L%ld)",Lot,Lot);printf(" ");
                 printf("Tid=%lx(T%ld)",Tid,Tid);printf(" ");
@@ -419,9 +472,53 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
              {
                 case 0x14:
                 {
+                    //https://github.com/NightscoutFoundation/omni-firmware/blob/6cb8848dc158774200bcf67345ebb99f978a7f17/c_code/generate_output.c#L348
+                    /*
+                    bodyptr = buffer + 6;
+			bodyptr[0] = 6;	// mtype for error response
+			bodyptr[1] = 3	// len
+			bodyptr[2] = error_77_in;
+			if (error_77_in == 0x14) {
+				*(word *)(body+3) = output_nonce_computation_into_HX()
+
+                if (*(dword *)(bodyptr + 2) != dword_EF) {
+				// FCB5
+				ret = 0x14;
+				word_F7++;
+				dword_F3 = *(dword *)(bodyptr + 2);
+				byte_FA = A_in; //The nonce from teh PDM :851072AA ?? Byte[1]=0x72
+				nonce_computation(1);
+
+                    */
                     //(word_F5 + crc_table[byte_FA] + lot_number + serial_number) ^ word_F7;
                     //https://github.com/NightscoutFoundation/omni-firmware/blob/e7a217005c565c020a9f3b9f73e06d04a52b2b4c/c_code/nonce.c#L5
-                    printf("Nonce ErrorHx=%02x%02x",SubMessage[1],SubMessage[2]);
+                    //ACEB->Seed4,Index11
+                    printf("Nonce ErrorHx=%02x%02x ",SubMessage[1],SubMessage[2]);
+                    unsigned int Crc=0;
+                    //if(GeneralIndexNounce!=-1)
+                    int Index=39;
+                    int Seed=16;
+                    Crc=crc_table16[0x72];//Index-1 ??? Byte FA is byte1
+                    unsigned int Result=((unsigned int)(SubMessage[1])<<8)+SubMessage[2];
+                    unsigned int Weknow=(mlot&0xFFFF)|(mtid&0xFFFF);
+                    Weknow+=Crc;
+                    Weknow+=0xAA;
+                    unsigned int LotTid=(unsigned int)(mlot&0xFFFF)+(unsigned int)(mtid&0xFFFF);
+                    for(int j=0;j<40;j++)
+                    {
+                        Seed=j;
+                        for(int i=0;i<16;i++)
+                        {
+                            Crc=crc_table16[i];//Index-1 ??? Byte FA is byte1
+                            if(((LotTid+Crc+0x72AA)&0xFFFF)==(Result^Seed))
+                            {
+                                printf("CRC Index=%d Seed=%d HX %0x (without xor %x/%x Diff=%d)\n",i,j,(LotTid+Crc+0x72AA)^Seed,Result^Seed,(LotTid+Crc+0x72AA),((LotTid+Crc+0x72AA)&0xFFFF)-(Result^Seed));//72E7
+                                break;
+                            }
+                                
+                        }
+                    }
+                    //printf("Seed %d Index %d",
                 }
                 break;
              }   
@@ -484,35 +581,7 @@ void ParseSubMessage(int Seq,int Source,unsigned char *Message,int Length,int Se
 
 
 
-unsigned int crc_table16[] = {0x0000,0x8005,0x800f,0x000a,0x801b,0x001e,0x0014,0x8011,0x8033,
-               0x0036,0x003c,0x8039,0x0028,0x802d,0x8027,0x0022,0x8063,0x0066,
-               0x006c,0x8069,0x0078,0x807d,0x8077,0x0072,0x0050,0x8055,0x805f,
-               0x005a,0x804b,0x004e,0x0044,0x8041,0x80c3,0x00c6,0x00cc,0x80c9,
-               0x00d8,0x80dd,0x80d7,0x00d2,0x00f0,0x80f5,0x80ff,0x00fa,0x80eb,
-               0x00ee,0x00e4,0x80e1,0x00a0,0x80a5,0x80af,0x00aa,0x80bb,0x00be,
-               0x00b4,0x80b1,0x8093,0x0096,0x009c,0x8099,0x0088,0x808d,0x8087,
-               0x0082,0x8183,0x0186,0x018c,0x8189,0x0198,0x819d,0x8197,0x0192,
-               0x01b0,0x81b5,0x81bf,0x01ba,0x81ab,0x01ae,0x01a4,0x81a1,0x01e0,
-               0x81e5,0x81ef,0x01ea,0x81fb,0x01fe,0x01f4,0x81f1,0x81d3,0x01d6,
-               0x01dc,0x81d9,0x01c8,0x81cd,0x81c7,0x01c2,0x0140,0x8145,0x814f,
-               0x014a,0x815b,0x015e,0x0154,0x8151,0x8173,0x0176,0x017c,0x8179,
-               0x0168,0x816d,0x8167,0x0162,0x8123,0x0126,0x012c,0x8129,0x0138,
-               0x813d,0x8137,0x0132,0x0110,0x8115,0x811f,0x011a,0x810b,0x010e,
-               0x0104,0x8101,0x8303,0x0306,0x030c,0x8309,0x0318,0x831d,0x8317,
-               0x0312,0x0330,0x8335,0x833f,0x033a,0x832b,0x032e,0x0324,0x8321,
-               0x0360,0x8365,0x836f,0x036a,0x837b,0x037e,0x0374,0x8371,0x8353,
-               0x0356,0x035c,0x8359,0x0348,0x834d,0x8347,0x0342,0x03c0,0x83c5,
-               0x83cf,0x03ca,0x83db,0x03de,0x03d4,0x83d1,0x83f3,0x03f6,0x03fc,
-               0x83f9,0x03e8,0x83ed,0x83e7,0x03e2,0x83a3,0x03a6,0x03ac,0x83a9,
-               0x03b8,0x83bd,0x83b7,0x03b2,0x0390,0x8395,0x839f,0x039a,0x838b,
-               0x038e,0x0384,0x8381,0x0280,0x8285,0x828f,0x028a,0x829b,0x029e,
-               0x0294,0x8291,0x82b3,0x02b6,0x02bc,0x82b9,0x02a8,0x82ad,0x82a7,
-               0x02a2,0x82e3,0x02e6,0x02ec,0x82e9,0x02f8,0x82fd,0x82f7,0x02f2,
-               0x02d0,0x82d5,0x82df,0x02da,0x82cb,0x02ce,0x02c4,0x82c1,0x8243,
-               0x0246,0x024c,0x8249,0x0258,0x825d,0x8257,0x0252,0x0270,0x8275,
-               0x827f,0x027a,0x826b,0x026e,0x0264,0x8261,0x0220,0x8225,0x822f,
-               0x022a,0x823b,0x023e,0x0234,0x8231,0x8213,0x0216,0x021c,0x8219,
-               0x0208,0x820d,0x8207,0x0202};
+
 
 unsigned int crc16(unsigned char *data,int len)
 {
@@ -1138,8 +1207,9 @@ int main(int argc, char*argv[])
 
    
    
-  InitNounce(43080,480653,0,0);
-    
+ // InitNounce(43080,480653,0); // Date 23/10 - 26/10
+    InitNounce(43080,430528,0);//26/10- 30/10
+    // InitNounce(43080,420524,0);//30/10- 2/11
       
    InitRF();
           
