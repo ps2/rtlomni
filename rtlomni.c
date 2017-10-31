@@ -500,9 +500,9 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                     unsigned int Result=((unsigned int)(SubMessage[1])<<8)+SubMessage[2];
                     unsigned int LotTid=(unsigned int)(mlot&0xFFFF)+(unsigned int)(mtid&0xFFFF);
                     printf("Seed request :");
-                    for(int j=0;j<128;j++)
+                    for(int Seed=0;Seed<128;Seed++)
                     {
-                        Seed=j;
+                        
                         //for(int i=0;i<16;i++)
                         {
                             //Crc=crc_table16[i];//Index-1 ??? Byte FA is byte1
@@ -510,7 +510,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                             {
                                 //printf("CRC Index=%d Seed=%d HX %0x (without xor %x/%x Diff=%d)\n",i,j,(LotTid+Crc+0x72AA)^Seed,Result^Seed,(LotTid+Crc+0x72AA),((LotTid+Crc+0x72AA)&0xFFFF)-(Result^Seed));//72E7
                                 //printf("/%d(crc_index %d)",j,i);
-                                printf("%d ",j);
+                                printf("%d ",Seed);
                                 break;
                             }
                                 
@@ -1188,8 +1188,7 @@ int main(int argc, char*argv[])
     else    
             iqfile = fopen ("omniup325.cu8", "r");
 
-    DebugIQ = fopen ("debug.cu8", "wb");
-    if(DebugIQ==NULL) {printf("Error opeing output file\n");exit(0);}
+    
 
     if(argc>=4)
     {
@@ -1197,6 +1196,13 @@ int main(int argc, char*argv[])
         mtid=atol(argv[3]);
      
     }
+    
+    if(strcmp(argv[1],"debug.cu8")!=0) 
+    {
+        DebugIQ = fopen ("debug.cu8", "wb");
+        if(DebugIQ==NULL) {printf("Error opeing output file\n");exit(0);}
+    }
+
       #ifdef DEBUG_FM
       DebugFM = fopen ("debugfm.cf32", "wb");
       #endif  
