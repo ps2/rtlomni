@@ -1,11 +1,11 @@
-/* Created by Evariste Courjaud F5OEO. Code is GPL
+/* Created by Evariste Courjaud F5OEO (2017). Code is GPL
 rtlomni is a software to sniff RF packets using a RTLSDR dongle in order to analysis Omnipod protocol.
 
 Credits :
 
 This work is mainly based on https://github.com/ps2/omnipod_rf
 
-Hope this could help https://github.com/openaps/openomni
+Hope this could help and contribute to https://github.com/openaps/openomni
 
 SDR demodulation and signal processing is based on excellent https://github.com/jgaeddert/liquid-dsp/
 
@@ -32,6 +32,10 @@ Licence :
 #include <stdint.h>
 
 #include <liquid/liquid.h>
+
+
+
+//#define DEBUG_PACKET 
 
 
 /*
@@ -210,7 +214,7 @@ int CheckNonce(unsigned long Nounce)
 
                if(GetNounce(i)==Nounce)
                {
-                  if(j!=0) printf("F7(%d)",j);   
+                  if(j!=0) printf("Seed(%d)",j);   
                   if(GeneralIndexNounce==-1) GeneralIndexNounce=i;
                   
                   if((GeneralIndexNounce==i)||(GeneralIndexNounce+1==(i)))
@@ -268,22 +272,26 @@ unsigned char printbit(unsigned char Byte,int bitstart,int bitstop)
 
 void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Length,int SeqMessage)
 {
-    enum {Cmd_GetConfig=3,Cmd_Pairing=7,Cmd_GetStatus=0xe,Cmd_InsulinScheduleExtra=0x17,Cmd_SyncTime=0x19,Cmd_InsulinSchedule=0x1a,Cmd_CancelBolus=0x1F};
+    enum {Cmd_GetConfig=3,Cmd_Pairing=7,Cmd_GetStatus=0xe,Cmd_BasalScheduleExtra=0x13,Cmd_InsulinScheduleExtra=0x17,Cmd_SyncTime=0x19,Cmd_InsulinSchedule=0x1a,Cmd_CancelBolus=0x1F,Cmd_CancelPOD=0x1C};
     enum {Resp_Status=0x1D,Resp_Tid=0x01,Resp02=0x02,RespError=0x06};
-    const char *TypeInsulin[]={"Basal","Temp Basal","Bolus"};
+    const char *TypeInsulin[]={"Basal","Temp Basal","Bolus","All","All","All","All","All","All"};
 
    
     if(Source==POD)
     {    
-        printf(ANSI_COLOR_GREEN);
+        
         printf("#%d POD %02x",SeqMessage,Type);
+         printf("(%d)->",Length);
+        printf(ANSI_COLOR_GREEN);
     }
     if(Source==PDM)
     {    
-        printf(ANSI_COLOR_BLUE);
         printf("#%d PDM %02x",SeqMessage,Type);
+         printf("(%d)->",Length);
+        printf(ANSI_COLOR_BLUE);
+        
     }
-    printf("(%d)->",Length);
+   
     switch(Type)
     {
         case Cmd_GetConfig:printf("GetConfig");
@@ -291,7 +299,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         {
             printf("POD Add=%02x%02x%02x%02x",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3]);printf(" ");
             printf("Unknwown %02x",SubMessage[5]);printf(" ");
-            printf("Date %02x%02x%02x%02x%02x (%d/%d/---)",SubMessage[6],SubMessage[7],SubMessage[8],SubMessage[9],SubMessage[10],SubMessage[6],SubMessage[7]);
+            printf("Date %02x%02x%02x%02x%02x (%d/%d/20%d %d:%d))",SubMessage[6],SubMessage[7],SubMessage[8],SubMessage[9],SubMessage[10],SubMessage[6],SubMessage[7],SubMessage[8],SubMessage[9],SubMessage[10]);
 
             if(Length==0x13)
             {
@@ -320,7 +328,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
              int IndexNounce=CheckNonce(CurrentNonce);
         
             printf("Nonce:%02x%02x%02x%02x(%d)",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3],IndexNounce);printf(" ");
-            printf("Type:%02x %s",SubMessage[4],TypeInsulin[SubMessage[4]&0x3]);printf(" ");
+            printf("Type:%02x %s",SubMessage[4],TypeInsulin[SubMessage[4]&0x7]);printf(" ");
             int Type=SubMessage[4];
                     
 
@@ -348,12 +356,12 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         }
         break;
         case Cmd_InsulinScheduleExtra:
-        //https://github.com/openaps/openomni/wiki/Command-17---Bolus-extra    
-        printf("InsulinExtra");
-        if(Length==0x10) printf("(long):");
-        if(Length==0xD) printf("(short):");    
-        printf("Immediate");
-        printf("\n");
+            //https://github.com/openaps/openomni/wiki/Command-17---Bolus-extra    
+            printf("InsulinExtra");
+            if(Length==0x10) printf("(long):");
+            if(Length==0xD) printf("(short):");    
+            printf("Immediate");
+            printf("\n");
         break;
         case Cmd_CancelBolus:
         //https://github.com/openaps/openomni/wiki/Command-1F        
@@ -364,14 +372,18 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
             CurrentNonce=(((unsigned long)SubMessage[0])<<24)|(((unsigned long)SubMessage[1])<<16)|(((unsigned long)SubMessage[2])<<8)|(((unsigned long)SubMessage[3]));
             int IndexNounce=CheckNonce(CurrentNonce);
             printf("Nonce %02x%02x%02x%02x(%d)",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3],IndexNounce);printf(" ");
-            printf("Type %x(%s)",SubMessage[4]&0x3,TypeInsulin[SubMessage[4]&0x3]);
+            printf("Type %x(%s)",SubMessage[4]&0x7,TypeInsulin[SubMessage[4]&0x7]);
         }
         break;
-        case 0x13 : 
+        case Cmd_BasalScheduleExtra : // This is a 1A parsing
         //https://github.com/NightscoutFoundation/omni-firmware/blob/master/c_code/process_input_message_and_create_output_message.c#L479
-         printf(ANSI_COLOR_RED);
-        printf("Submessage need to be analyzed ");
-        printf("\n");
+         //printf(ANSI_COLOR_RED);
+        {
+            printf("Basal Extra ");
+            printf("Type:%02x %s",SubMessage[1],TypeInsulin[SubMessage[1]&0x7]);printf(" ");
+            for(int i=0;i<Length;i++) printf("%02x",SubMessage[i]);
+            printf("\n");
+        }
         break;
         
         case Cmd_SyncTime:
@@ -390,6 +402,29 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         }
         break;
         
+        case Cmd_CancelPOD:
+        {
+            printf("CancelPOD ");
+            unsigned long CurrentNonce=0;
+            CurrentNonce=(((unsigned long)SubMessage[0])<<24)|(((unsigned long)SubMessage[1])<<16)|(((unsigned long)SubMessage[2])<<8)|(((unsigned long)SubMessage[3]));
+            int IndexNounce=CheckNonce(CurrentNonce);
+            
+            printf("Nonce %02x%02x%02x%02x(%d)",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3],IndexNounce);printf(" "); 
+            
+        }
+        break;
+        case 0x11:
+        {
+            printf("0x11:Command unknown ");
+            unsigned long CurrentNonce=0;
+            CurrentNonce=(((unsigned long)SubMessage[0])<<24)|(((unsigned long)SubMessage[1])<<16)|(((unsigned long)SubMessage[2])<<8)|(((unsigned long)SubMessage[3]));
+            int IndexNounce=CheckNonce(CurrentNonce);
+            
+            printf("Nonce %02x%02x%02x%02x(%d)",SubMessage[0],SubMessage[1],SubMessage[2],SubMessage[3],IndexNounce);printf(" "); 
+            
+        }
+        break;
+
         case Resp_Status: 
         //https://github.com/openaps/openomni/wiki/Status-response-1D
         /*The 1D response has the following form:
@@ -527,12 +562,13 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         printf(ANSI_COLOR_RED);
         printf("Submessage not parsed :%02x(%d)",Type,Length);
         for(int i=0;i<Length;i++) printf("%02x",SubMessage[i]);
-        printf("\n");
+       
         
         break; 
 
     }
     printf(ANSI_COLOR_RESET);
+    printf("\n");
     
 }
 
@@ -543,28 +579,31 @@ void ParseSubMessage(int Seq,int Source,unsigned char *Message,int Length,int Se
     int i=0;
     int nbsub=0;
     //printf("\nSUBMESSAGES:\n");
-    //printf("Packet %d Message %d-------------------------------------------\n",Seq,SeqMessage);
+    //printf("Packet %d Message %d(len %d)-------------------------------------------\n",Seq,SeqMessage,Length);
     while(i<Length)
     {
         //if(Source==POD) printf("POD:"); else printf("PDM:");
         //printf("(%d:%d)\tCommand %02x->",Seq,nbsub,Message[i]);    
-        //printf("%02x->",Message[i]);    
+        //printf("%02x->\n",Message[i]);    
         int Type=Message[i++];
-        unsigned char Submessage[255];
-        //printf("%02x+",Message[i]);
+        unsigned char Submessage[MAXPACKETLENGTH];
+        //printf("%02x+\n",Message[i]);
         int SubLength=Message[i++];
-       
+        
         if(Type==0x1D) SubLength=Length; //Unlike other messages, the second byte holds data rather than the message length. The reason for this is unknown.
+        if(SubLength>Length) {printf("Error in submessage lentgth expected %d/ Get %d\n",SubLength,Length);SubLength=Length;}
         for(int j=0;j<SubLength;j++)
         {    
            Submessage[j]=Message[i++];
-           //printf("%02x",Submessage[j]);
+           #ifdef DEBUG_PACKET
+           printf("%02x",Submessage[j]);
+           #endif 
            
         }
         InterpretSubMessage(Source,Type,Submessage,SubLength,SeqMessage); 
         nbsub++;
  
-        printf("\n");        
+        //printf("\n");        
 
     }
     
@@ -597,24 +636,39 @@ unsigned int crc16(unsigned char *data,int len)
 
 void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMessageLength,int SeqMessage)
 {
-    static unsigned char Message[512];
+    static unsigned char Message[MAXPACKETLENGTH];
     static int IndexMessage=0;
     static int MessageLength=0;
     static int LastSource=0;
     static int MemSeqMessage=-1;
     if(SeqMessage!=-1) MemSeqMessage=SeqMessage;
+    #ifdef DEBUG_PACKET
     if(Source==ACK) 
     {
-        //printf("ACK %d: ",Seq);
+        printf("ACK %d: ",Seq);
         for(int j=0;j<Length;j++)
         {    
            
-           //printf("%02x",Packet[j]);
+           printf("%02x",Packet[j]);
            
         }
-        //printf("\n");
-        return;
+        printf("\n");
+        
     }
+    else
+    {
+       switch(Source)
+        {
+            case PDM:printf("PDM %d",Seq);break;
+            case POD:printf("POD %d",Seq);break;
+            case ACK:printf("ACK %d",Seq);break;
+            case CON:printf("CON %d",Seq);break;
+            default:printf("UNKOWN");break;         
+        }
+        printf("\n");
+    }
+    #endif
+    if(Source==ACK) return; 
     if((Source==POD)||(Source==PDM))
     {
         LastSource=Source;
@@ -626,16 +680,18 @@ void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMes
          IndexMessage=0; // To avoid repetition packet   
          
     }
-    //printf("\nTargetMessage=%d Length=%d\n",MessageLength,IndexMessage+Length);
-   
+    #ifdef DEBUG_PACKET
+    printf("\nTargetMessage=%d Length=%d\n",MessageLength,IndexMessage+Length);
+    #endif
+
     for(int i=0;i<Length;i++)
     {
         Message[IndexMessage++]=Packet[i];
     }
 
-    if((Length==0)||(IndexMessage==MessageLength)) 
+    if((Length==0)||(IndexMessage>=MessageLength)) 
     {
-        
+        if(IndexMessage>MessageLength) {MessageLength=IndexMessage; printf("Message is longer than expected\n");} 
         if(Length==0) printf("Incomplete ");
         //printf("Body Message :");
         //for(int i=6;i<IndexMessage;i++) printf("%02x",Message[i]);
@@ -645,7 +701,9 @@ void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMes
         unsigned int CRCProcess=crc16(&Message[0],MessageLength-2);
         // printf(" CRC16=%04x/%04x",CRCRead,CRCProcess);
         if(CRCRead==CRCProcess) //CRC OK
-          ParseSubMessage(Seq,LastSource,&Message[6],IndexMessage-6-2,MemSeqMessage);  
+          ParseSubMessage(Seq,LastSource,&Message[6],IndexMessage-6-2,MemSeqMessage);
+        else
+           printf("!!!CRC16 error\n");  
 
 
 
@@ -708,15 +766,16 @@ unsigned char crc_8(unsigned char crc, const void *data, size_t data_len)
     return crc & 0xff;
 };
 
-void ParsePacket(void)
+void ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
 {
    
     
-     int static ActualSEQ=-1;   
-     /*printf("\nPACKET : ");
+     int static ActualSEQ=-1;  
+    
+ /*    printf("\nPACKET : ");
     for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]);
     printf("\n");
-    */
+   */ 
     /* ************* WORKAROUND FOR CC TRANSMITION ****************/
     #ifdef RILEY_WORKAROUND
     if(BufferData[IndexData-1]==0xFF) IndexData--;
@@ -724,35 +783,28 @@ void ParsePacket(void)
     #endif
     /* ************* END OF WORKAROUND FOR CC TRANSMITION ****************/
     
-    if(IndexData<4) return; 
-    if((IndexData<8)&&(IndexData>=4)) 
+    if(IndexData<4) return;
+ #ifdef DEBUG_PACKET
+    printf("\n%.3f:",TimePacket/1e3);
+#endif
+    if((IndexData<6)&&(IndexData>=4)) 
     {
+         #ifdef DEBUG_PACKET
         printf("\nUnknown packet : ");
         for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]);
         printf("\n");
+        #endif
         return;
     }
-
    
+    int PacketType=(BufferData[4]>>5);
     
-    //printf("ID1:%x%x%x%x",BufferData[0],BufferData[1],BufferData[2],BufferData[3]);
-    //printf(" PTYPE:");
-    int PacketType=BufferData[4]>>5;
-/*
-    switch(PacketType)
-    {
-        case PDM:printf("PDM");break;
-        case POD:printf("POD");break;
-        case ACK:printf("ACK");break;
-        case CON:printf("CON");break;
-        default:printf("UNKOWN");break;         
-    }
-*/
     int Source=PacketType;
-    //printf(" SEQ:%d",BufferData[4]&0x1F);
+    //printf(" SEQ:%d \n",BufferData[4]&0x1F);
     int Seq=BufferData[4]&0x1F;
-
-    //printf("New packet type %x with %d length : ",PacketType,IndexData);   for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]); printf("\n");
+     #ifdef DEBUG_PACKET    
+    printf("New packet type %x with %d length : ",PacketType,IndexData);   for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]); printf("\n");
+    #endif
     int CRCOK=0;
     int ProcessedPacket=0;
     if(PacketType!=CON)
@@ -788,8 +840,9 @@ void ParsePacket(void)
         }
         else
         {
-            
+             #ifdef DEBUG_PACKET
             printf("BAD CRC\n");
+            #endif
             Seq=ActualSEQ;
         }
         ProcessedPacket=1;
@@ -814,7 +867,9 @@ void ParsePacket(void)
         else
         {
             Seq=ActualSEQ;
-            //printf("BAD CRC - CON\n");
+            #ifdef DEBUG_PACKET
+            printf("BAD CRC - CON\n");
+            #endif
         }
        ProcessedPacket=1;
     }
@@ -833,14 +888,25 @@ void ParsePacket(void)
         }
         else
         {
+           
             Seq=ActualSEQ;
-            //printf("BAD CRC - ACK\n");
+             #ifdef DEBUG_PACKET
+            printf("BAD CRC - ACK\n");
+            #endif
         }
        ProcessedPacket=1;
         
     }    
-    
-    if(ProcessedPacket==0) printf("Packet not parsed\n");    
+   
+    if(ProcessedPacket==0)
+    {
+         #ifdef DEBUG_PACKET
+         printf("Packet not parsed\n");
+        for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]);
+        printf("\n");
+        #endif
+        return;
+    }    
     if(ActualSEQ==-1) 
     {
         ActualSEQ=Seq;
@@ -998,7 +1064,7 @@ void InitRF(void)
    
     buf_rx=(float complex*)malloc(k*sizeof(float complex));
    iq_buffer=(uint8_t *)malloc(k*2*sizeof(uint8_t)); // 1Byte I, 1Byte Q
-    float        bandwidth   = FSKDeviationHz*2/IQSR;    // frequency spacing : RTLSDR SR shoulde be 256K. Spacing is 26.37KHZ 
+    float        bandwidth   = FSKDeviationHz*2/IQSR;    // frequency spacing : RTLSDR SR shoulde be 1300K. Spacing is 26.37KHZ 
     unsigned int nfft        = 1200;    // FFT size for compute spectrum
    
     unsigned int M    = 1 << m;
@@ -1115,7 +1181,7 @@ int ProcessRF()
                             if(Manchester==-2)
                             {
                                 //printf("\n Unlock \n");
-                                ParsePacket();
+                                ParsePacket(SampleTime*1e3/IQSR); //ms
                                 
                                 FSKSyncStatus=0; // Error in Manchester 
                                 IndexData=0;
