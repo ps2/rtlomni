@@ -36,7 +36,7 @@ Licence :
 
 
 #define DEBUG_PACKET 
-
+#define DEBUG_MESSAGE
 
 /*
 433.923MHz center signal
@@ -173,7 +173,7 @@ unsigned char crc_8(unsigned char crc, const void *data, size_t data_len)
 //***************************************************************************************************
 //*********************************** TRANSMISSION PART *********************************************
 //***************************************************************************************************
-#define MAX_BYTE_PER_PACKET 33
+#define MAX_BYTE_PER_PACKET (31+6)
 #define MAX_PACKETBYMESSAGE 1000
 typedef struct TxPacketRF
 {
@@ -198,26 +198,35 @@ int SetPacket(TxPacketRF *PacketRF,unsigned char *Body,int Length)
 {
     PacketRF->PacketLength=0;
     // Physical address
-    PacketRF->PacketBufferRF[PacketRF->PacketLength++]=PacketRF->PhysicaAddress>>24;
-    PacketRF->PacketBufferRF[PacketRF->PacketLength++]=PacketRF->PhysicaAddress>>16;
-    PacketRF->PacketBufferRF[PacketRF->PacketLength++]=PacketRF->PhysicaAddress>>8;
-    PacketRF->PacketBufferRF[PacketRF->PacketLength++]=PacketRF->PhysicaAddress&0xFF;
+    PacketRF->PacketBufferRF[0]=PacketRF->PhysicaAddress>>24;
+    PacketRF->PacketBufferRF[1]=PacketRF->PhysicaAddress>>16;
+    PacketRF->PacketBufferRF[2]=PacketRF->PhysicaAddress>>8;
+    PacketRF->PacketBufferRF[3]=PacketRF->PhysicaAddress&0xFF;
     //Type = PDM , Sequence should be updated     
-    PacketRF->PacketBufferRF[PacketRF->PacketLength++]=(PacketRF->Type<<5)|(PacketRF->Sequence&0x1F);
+    PacketRF->PacketBufferRF[4]=(PacketRF->Type<<5)|(PacketRF->Sequence&0x1F);
+    PacketRF->PacketLength+=5;
     int ByteSent=0;
 
-    if(Length>(MAX_BYTE_PER_PACKET-6)) //6 is the physical packet overhead
+    int Overhead=0;
+    if(PacketRF->Type==PDM) Overhead=5;
+    if(PacketRF->Type==CON) Overhead=5;
+
+    //FIXME HERE OR ELSEWHERE
+
+    if(Length>(MAX_BYTE_PER_PACKET-Overhead-1)) //5 header + 1 CRC is the physical packet overhead
     {  
-        memcpy(PacketRF->PacketBufferRF+5,Body,MAX_BYTE_PER_PACKET-6);
-        PacketRF->PacketLength+=MAX_BYTE_PER_PACKET-6;
+        
+        memcpy(PacketRF->PacketBufferRF+Overhead,Body,MAX_BYTE_PER_PACKET-Overhead-1);
+        PacketRF->PacketLength=MAX_BYTE_PER_PACKET;
   
         PacketRF->PacketBufferRF[MAX_BYTE_PER_PACKET-1]=crc_8(0,PacketRF->PacketBufferRF,MAX_BYTE_PER_PACKET-1);
-        ByteSent=MAX_BYTE_PER_PACKET-6;  
+        ByteSent=MAX_BYTE_PER_PACKET-Overhead-1;  
     }
     else
     {
-        memcpy(PacketRF->PacketBufferRF+5,Body,Length);
+        memcpy(PacketRF->PacketBufferRF+Overhead,Body,Length);
         PacketRF->PacketLength+=Length;
+        PacketRF->PacketLength+=1; //Reserved for CRC16
         PacketRF->PacketBufferRF[PacketRF->PacketLength-1]=crc_8(0,PacketRF->PacketBufferRF,PacketRF->PacketLength-1);
         ByteSent=Length;
     }
@@ -271,27 +280,32 @@ int PacketizeMessage(TxMessage *Message,int Ack,int TimeOut)
     {
         TxPacketRF *PacketRF=&Message->TxPoolBuffer[Message->NbPacket];
         PacketRF->PhysicaAddress=Message->Address; // FixMe here @physical == @Message which is not the case for pairing
-        PacketRF->Sequence=(0/* Last packet sequence*/+2)&0x1F;
+        PacketRF->Sequence=(Message->NbPacket/* Last packet sequence*/*2)&0x1F;
         if(Message->NbPacket==0)
             PacketRF->Type=PDM;
         else
             PacketRF->Type=CON;
-
+        
         int ByteSentPacket=SetPacket(PacketRF,&Message->CompleteMessage[ByteSent],MessageLengthRemaining);
         ByteSent+=ByteSentPacket;
         MessageLengthRemaining-=ByteSentPacket;
+        Message->NbPacket++;
+       
     }
     while (MessageLengthRemaining>0);
 
     return 1;
 }
-int TxAddPacket(unsigned int PhysAddress,int PacketSeq,int Type,unsigned char *Body);
+
     
 //********************* Message Layer
 int TxAddMessage();
 
 
-int TxAddSubMessage();
+int TxAddSubMessage()
+{
+    return 0;
+}
 
 //
 
@@ -800,7 +814,7 @@ void ParseSubMessage(int Seq,int Source,unsigned char *Message,int Length,int Se
         {    
            Submessage[j]=Message[i++];
            #ifdef DEBUG_PACKET
-           printf("%02x",Submessage[j]);
+           //printf("%02x",Submessage[j]);
            #endif 
            
         }
@@ -888,9 +902,10 @@ void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMes
         if(IndexMessage>MessageLength) {MessageLength=IndexMessage; printf("Message is longer than expected\n");} 
         if(Length==0) printf("Incomplete ");
         //printf("Body Message :");
-        //for(int i=6;i<IndexMessage;i++) printf("%02x",Message[i]);
-        //printf(" CRC16=%02x%02x/%04x",Message[IndexMessage-2],Message[IndexMessage-1],crc16(&Message[0],MessageLength-2));
-        
+        #ifdef DEBUG_MESSAGE
+        for(int i=6;i<IndexMessage-2;i++) printf("%02x",Message[i]);
+        printf(" CRC16=%02x%02x/%04x",Message[IndexMessage-2],Message[IndexMessage-1],crc16(&Message[0],MessageLength-2));
+        #endif
         unsigned int CRCRead=(Message[IndexMessage-2]*256)+Message[IndexMessage-1];
         unsigned int CRCProcess=crc16(&Message[0],MessageLength-2);
         // printf(" CRC16=%04x/%04x",CRCRead,CRCProcess);
@@ -962,7 +977,7 @@ void ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
     if(((PacketType==PDM)||(PacketType==POD))&&(IndexData>11))     
     {
         //printf(" B9:%02x",BufferData[9]);
-        int MessageSeq=(BufferData[9]&0x3C)>>2;
+        int MessageSeq=(BufferData[9]&0x3C)>>2; //3C Fixme !!!!!!!!
         
         int MessageLen=min((BufferData[10]+2),IndexData-12); //+2 Because CRC16 added ? 
         int ExtraMessageLen=BufferData[10]+((BufferData[9] & 3) << 8); // TO add for long message : FixMe !!!
@@ -1438,6 +1453,51 @@ int main(int argc, char*argv[])
     {
            
     } 
+    
+    printf("\n TEST TX ==================================\n");
+  TxMessage testtx;
+    testtx.Address=0xFFFFFFFF;
+  
+    //Test encapsulation
+    /*unsigned char MessageTest[50]={0x1a,0x14,0x89,0xfd,0x9d,0x78,0x00,0x01,0x56,0x1b,0x02,0x48,0x00,0x00,0x78,0x03,0xf8,0x05,0xa8,0x05,0xc0,0x05,0x13,0x1a,0x40,0x01,0x01,0x4d,0x00,0x73,0x22,0x48,0x01,0x18,0x03,0x10,0xbc,0xdb,0x05,0x96,0x01,0xf3,0x60,0xe8,0x02,0xbc,0x02,0x25,0x51,0x00};
+
+    
+    for(int i=0;i<50;i++)
+    {  
+        testtx.Body[i]=MessageTest[i];
+    }
+     testtx.BodyLength=50;
+*/
+unsigned char MessageTest[]={0x07,0x04,0x1f,0x10,0x89,0x5a};
+
+    
+    for(int i=0;i<6;i++)
+    {  
+        testtx.Body[i]=MessageTest[i];
+    }
+     testtx.BodyLength=6;
+
+
+    /*testtx.Body[0]=0x0E;
+    testtx.Body[1]=0x01;
+    testtx.Body[2]=0;
+    testtx.BodyLength=3;
+    */
+         
+    testtx.Sequence=0;
+
+    PacketizeMessage(&testtx,0,0);
+    
+    for(int i=0;i<testtx.NbPacket;i++)
+    {
+    
+       
+        memcpy(BufferData,testtx.TxPoolBuffer[i].PacketBufferRF,testtx.TxPoolBuffer[i].PacketLength);
+        IndexData=testtx.TxPoolBuffer[i].PacketLength;
+        ParsePacket(0.0);
+    }
+      
+
     #ifdef DEBUG_FM
     if(DebugFM!=NULL) fclose(DebugFM);      
     #endif    
