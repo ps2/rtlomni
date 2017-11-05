@@ -302,10 +302,15 @@ int PacketizeMessage(TxMessage *Message,int Ack,int TimeOut)
 int TxAddMessage();
 
 
-int TxAddSubMessage()
+int TxAddSubMessage(TxMessage *Message,unsigned char Type,unsigned char *SubMessage,int Length)
 {
-    return 0;
+    Message->Body[Message->BodyLength]=Type;
+     Message->Body[Message->BodyLength+1]=Length;
+    memcpy(Message->Body+2+Message->BodyLength,SubMessage,Length);
+    Message->BodyLength+=Length+2;
+    return Message->BodyLength;
 }
+
 
 //
 
