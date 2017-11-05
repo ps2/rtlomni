@@ -33,6 +33,8 @@ Licence :
 #include <sys/types.h>
        #include <sys/stat.h>
        #include <fcntl.h>
+#include <time.h>
+
 #include <liquid/liquid.h>
 
 
@@ -293,9 +295,8 @@ int SetPacket(TxPacketRF *PacketRF,unsigned char *Body,int Length)
     int Overhead=0;
     if(PacketRF->Type==PDM) Overhead=5;
     if(PacketRF->Type==CON) Overhead=5;
-
-    //FIXME HERE OR ELSEWHERE
-
+    if(PacketRF->Type==ACK) Overhead=5;
+    
     if(Length>(MAX_BYTE_PER_PACKET-Overhead-1)) //5 header + 1 CRC is the physical packet overhead
     {  
         
@@ -309,7 +310,7 @@ int SetPacket(TxPacketRF *PacketRF,unsigned char *Body,int Length)
     {
         memcpy(PacketRF->PacketBufferRF+Overhead,Body,Length);
         PacketRF->PacketLength+=Length;
-        PacketRF->PacketLength+=1; //Reserved for CRC16
+        PacketRF->PacketLength+=1; //Reserved for CRC8
         PacketRF->PacketBufferRF[PacketRF->PacketLength-1]=crc_8(0,PacketRF->PacketBufferRF,PacketRF->PacketLength-1);
         ByteSent=Length;
     }
@@ -381,6 +382,7 @@ int PacketizeMessage(TxMessage *Message,int LastPacketSequence,int TimeOut)
     return PaquetSequence;
 }
 
+
     
 //********************* Message Layer
 int TxAddMessage();
@@ -423,7 +425,27 @@ int TxTransmit(TxMessage *Message)
     return 0;
 }
 
-
+int TxAck(unsigned int Address,int PaquetSequence)
+{
+    TxMessage Message;
+    Message.NbPacket=0;
+   
+   
+    Message.CompleteMessage[0]=Address>>24;
+    Message.CompleteMessage[1]=Address>>16;
+    Message.CompleteMessage[2]=Address>>8;
+    Message.CompleteMessage[3]=Address&0xFF;
+    
+    TxPacketRF *PacketRF=&Message.TxPoolBuffer[Message.NbPacket];
+    PacketRF->PhysicaAddress=Address;
+    PacketRF->Sequence=PaquetSequence;
+    PacketRF->Type=ACK;
+    SetPacket(PacketRF,&Message.CompleteMessage[0],4);
+    Message.NbPacket=1;
+    TxTransmit(&Message);
+    return 0;
+}
+// ***************************** TX SUBMESSAGES *****************************************
 
 int TxPairing(unsigned int AddressToPair)
 {
@@ -442,7 +464,7 @@ int TxPairing(unsigned int AddressToPair)
     return 0;    
 }
 
-int GetStatus(unsigned int Address,int Type)
+int TxGetStatus(unsigned int Address,int Type)
 {
     TxMessage Message;
     Message.BodyLength=0;
@@ -462,7 +484,49 @@ int GetStatus(unsigned int Address,int Type)
     return 0;    
 }
 
+int TxGetConfig(unsigned int Address,unsigned int Lot,unsigned int Tid)
+{
+    TxMessage Message;
+    Message.BodyLength=0;
+    Message.Address=Address;
+    Message.Sequence=1;
+    unsigned char ConfigSubMessage[19];
+    ConfigSubMessage[0]=Address>>24;
+    ConfigSubMessage[1]=Address>>16;
+    ConfigSubMessage[2]=Address>>8;
+    ConfigSubMessage[3]=Address&0xFF;
 
+     ConfigSubMessage[4]=0x0; // Ignored
+    ConfigSubMessage[5]=0x4; // Unknown
+
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+
+    ConfigSubMessage[6]=tm->tm_mon;
+    ConfigSubMessage[7]=tm->tm_mday;
+    ConfigSubMessage[8]=tm->tm_year-100; // year from 2000
+    ConfigSubMessage[9]=tm->tm_hour;
+    ConfigSubMessage[10]=tm->tm_min;
+    
+    // Lot
+    ConfigSubMessage[11]=Lot>>24;
+    ConfigSubMessage[12]=Lot>>16;
+    ConfigSubMessage[13]=Lot>>8;
+    ConfigSubMessage[14]=Lot&0xFF;
+
+    //Tid
+    ConfigSubMessage[15]=Tid>>24;
+    ConfigSubMessage[16]=Tid>>16;
+    ConfigSubMessage[17]=Tid>>8;
+    ConfigSubMessage[18]=Tid&0xFF;
+    
+     TxAddSubMessage(&Message,Cmd_GetConfig,ConfigSubMessage,19);
+    PacketizeMessage(&Message,1,0);
+    TxTransmit(&Message);
+    
+
+    
+}
 
 
 //***************************************************************************************************
@@ -1611,9 +1675,9 @@ int main(int argc, char*argv[])
 
     printf("\n TEST TX ==================================\n");
 
-    GetStatus(0x1f108958,0);
-     GetStatus(0x1f108958,1);
-          GetStatus(0x1f108958,0x46);   
+    //GetStatus(0x1f108958,0);
+    TxGetConfig(0x1f108958,43205,1021187);
+    TxAck(0x1f108958,3);   
   TxMessage testtx;
     testtx.Address=0xFFFFFFFF;
   
@@ -1653,7 +1717,7 @@ int main(int argc, char*argv[])
        
         memcpy(BufferData,testtx.TxPoolBuffer[i].PacketBufferRF,testtx.TxPoolBuffer[i].PacketLength);
         IndexData=testtx.TxPoolBuffer[i].PacketLength;
-        ParsePacket(0.0);
+        //ParsePacket(0.0);
     }
       
 
