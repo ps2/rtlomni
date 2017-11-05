@@ -28,26 +28,21 @@ Licence :
 #include <string.h>
 #include <getopt.h>
 #include <math.h>
-
+#include <unistd.h>
 #include <stdint.h>
-
+#include <sys/types.h>
+       #include <sys/stat.h>
+       #include <fcntl.h>
 #include <liquid/liquid.h>
 
 
 
-#define DEBUG_PACKET 
-#define DEBUG_MESSAGE
+//#define DEBUG_PACKET 
+//#define DEBUG_MESSAGE
 
-/*
-433.923MHz center signal
-2-FSK, with 26.37kHz deviation
-40625bps data rate (before manchester)
-Manchester coded, non-ieee
-SYNCM_CARRIER_16_of_16 (16/16 sync word bits detected)
-MFMCFG1_NUM_PREAMBLE_8 (8 bytes of preamble)
-Sync word: 0x54c3
-8-bit crc with standard/common polynomal
-*/
+
+void ParsePacket(unsigned int TimePacket); //TimePacket is in millisecond
+
 
 enum {Debug_FSK,Debug_Manchester,Debug_Packet,Debug_Message};
 enum {ACK=0b010,CON=0b100,PDM=0b101,POD=0b111}; 
@@ -69,6 +64,9 @@ FILE *ManchesterFile=NULL;
 #ifdef DEBUG_FM
 FILE *DebugFM=NULL; 
 #endif
+
+
+int ActualSEQ=-1;  
 
 
 #define ANSI_COLOR_RED     "\x1b[31m"
@@ -176,6 +174,88 @@ unsigned char crc_8(unsigned char crc, const void *data, size_t data_len)
 //***************************************************************************************************
 //*********************************** TRANSMISSION PART *********************************************
 //***************************************************************************************************
+
+
+// ********************** RF LEVEL FOR RPITX ***********************************
+#define TONE_SPACING            8789           // ~8.7890625 Hz
+
+// Global variables
+
+int FileFreqTiming=0;    
+
+double BaudRate=40000;//40625.0;
+double Deviation=27000;//26296.0;
+uint32_t TotalTiming=0;
+void WriteTone(double Frequency,uint32_t Timing)
+{
+	typedef struct {
+		double Frequency;
+		uint32_t WaitForThisSample;
+	} samplerf_t;
+	samplerf_t RfSample;
+	
+	RfSample.Frequency=Frequency;
+	RfSample.WaitForThisSample=Timing; //en 100 de nanosecond
+    if(Frequency!=0.0)
+        TotalTiming+=Timing;
+	//printf("Freq =%f Timing=%ld\n",RfSample.Frequency,RfSample.WaitForThisSample);
+	if (write(FileFreqTiming, &RfSample,sizeof(samplerf_t)) != sizeof(samplerf_t)) {
+		fprintf(stderr, "Unable to write sample\n");
+	}
+
+}
+
+void WriteFSK(unsigned char bit)
+{
+    uint32_t Delay=1e9/BaudRate;
+    if(bit==0) 
+        WriteTone(-Deviation,Delay);
+    else
+        WriteTone(Deviation,Delay);
+       
+}
+
+void WriteByteManchester(unsigned char Byte,char flip)
+{
+    unsigned char ByteFlip;
+    if(flip==1) ByteFlip=Byte^0xFF; else ByteFlip=Byte; 
+    //printf("%x",ByteFlip);
+    for(int i=7;i>=0;i--)
+    {
+        if(((ByteFlip>>i)&0x1)==0) 
+        {
+            WriteFSK(0);
+            WriteFSK(1);    
+        }
+        else
+        {
+            WriteFSK(1);
+            WriteFSK(0);
+        }
+    }
+}
+
+void WriteSync()
+{
+    for(int i=0;i<100;i++)
+    {
+        WriteByteManchester(0x54,0);
+    }
+    WriteByteManchester(0xC3,0);    
+}
+
+void WriteEnd()
+{
+       for(int i=0;i<5;i++)
+           WriteFSK(1);
+        WriteTone(0,1e9);
+        
+}
+
+// ************************* END OF RPITX *******************************
+
+
+
 #define MAX_BYTE_PER_PACKET (31+6)
 #define MAX_PACKETBYMESSAGE 1000
 typedef struct TxPacketRF
@@ -257,9 +337,9 @@ typedef struct TxMessage
 } TxMessage;
  
 
-int PacketizeMessage(TxMessage *Message,int Ack,int TimeOut)
+int PacketizeMessage(TxMessage *Message,int LastPacketSequence,int TimeOut)
 {
-    
+    int PaquetSequence=LastPacketSequence;
     Message->NbPacket=0;
 
     //Need a CRC16 at end
@@ -283,7 +363,8 @@ int PacketizeMessage(TxMessage *Message,int Ack,int TimeOut)
     {
         TxPacketRF *PacketRF=&Message->TxPoolBuffer[Message->NbPacket];
         PacketRF->PhysicaAddress=Message->Address; // FixMe here @physical == @Message which is not the case for pairing
-        PacketRF->Sequence=(Message->NbPacket/* Last packet sequence*/*2)&0x1F;
+        PaquetSequence=(Message->NbPacket*2+LastPacketSequence)&0x1F;
+        PacketRF->Sequence=PaquetSequence;
         if(Message->NbPacket==0)
             PacketRF->Type=PDM;
         else
@@ -297,7 +378,7 @@ int PacketizeMessage(TxMessage *Message,int Ack,int TimeOut)
     }
     while (MessageLengthRemaining>0);
 
-    return 1;
+    return PaquetSequence;
 }
 
     
@@ -310,9 +391,38 @@ int TxAddSubMessage(TxMessage *Message,unsigned char Type,unsigned char *SubMess
     Message->Body[Message->BodyLength]=Type;
      Message->Body[Message->BodyLength+1]=Length;
     memcpy(Message->Body+2+Message->BodyLength,SubMessage,Length);
-    Message->BodyLength+=Length+2;
+    Message->BodyLength+=(Length+2);
     return Message->BodyLength;
 }
+
+//****************** RF Layer ***********************
+
+int TxTransmit(TxMessage *Message)
+{
+
+    
+        
+	
+
+
+
+
+    for(int i=0;i<Message->NbPacket;i++)
+    {
+        WriteSync();
+        for(int j=0;j<Message->TxPoolBuffer[i].PacketLength;j++) WriteByteManchester(Message->TxPoolBuffer[i].PacketBufferRF[j],1); 
+        WriteEnd(); 
+
+        printf("\nTx%d:",i);
+        for(int j=0;j<Message->TxPoolBuffer[i].PacketLength;j++) printf("%02x",Message->TxPoolBuffer[i].PacketBufferRF[j]);
+        printf("\n");
+        memcpy(BufferData,Message->TxPoolBuffer[i].PacketBufferRF,Message->TxPoolBuffer[i].PacketLength);
+        IndexData=Message->TxPoolBuffer[i].PacketLength;
+        ParsePacket(0.0);
+    }
+    return 0;
+}
+
 
 
 int TxPairing(unsigned int AddressToPair)
@@ -320,14 +430,35 @@ int TxPairing(unsigned int AddressToPair)
     TxMessage Message;
     Message.BodyLength=0;
     Message.Address=0xFFFFFFFF;
-    Message.Sequence=0;
+    Message.Sequence=1;
     unsigned char PairingSubMessage[4];
     PairingSubMessage[0]=AddressToPair>>24;
     PairingSubMessage[1]=AddressToPair>>16;
     PairingSubMessage[2]=AddressToPair>>8;
     PairingSubMessage[3]=AddressToPair&0xFF;
     TxAddSubMessage(&Message,Cmd_Pairing,PairingSubMessage,4);
-    PacketizeMessage(&Message,0,0);
+    PacketizeMessage(&Message,1,0);
+    TxTransmit(&Message);
+    return 0;    
+}
+
+int GetStatus(unsigned int Address,int Type)
+{
+    TxMessage Message;
+    Message.BodyLength=0;
+    Message.Address=Address;
+    Message.Sequence=1;
+    unsigned char StatusSubMessage[1];
+
+    if(Type>1)  
+    {
+            StatusSubMessage[0]=1;    
+            TxAddSubMessage(&Message,Cmd_GetStatus,StatusSubMessage,1);
+    }
+     StatusSubMessage[0]=Type;    
+    TxAddSubMessage(&Message,Cmd_GetStatus,StatusSubMessage,1);
+    PacketizeMessage(&Message,1,0);
+    TxTransmit(&Message);
     return 0;    
 }
 
@@ -952,7 +1083,7 @@ void ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
 {
    
     
-     int static ActualSEQ=-1;  
+     
     
  /*    printf("\nPACKET : ");
     for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]);
@@ -997,7 +1128,7 @@ void ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
     if(((PacketType==PDM)||(PacketType==POD))&&(IndexData>11))     
     {
         //printf(" B9:%02x",BufferData[9]);
-        int MessageSeq=(BufferData[9]&0x3C)>>2; //3C Fixme !!!!!!!!
+        int MessageSeq=(BufferData[9]&0x3F)>>2; //3C Fixme !!!!!!!!
         
         int MessageLen=min((BufferData[10]+2),IndexData-12); //+2 Because CRC16 added ? 
         int ExtraMessageLen=BufferData[10]+((BufferData[9] & 3) << 8); // TO add for long message : FixMe !!!
@@ -1102,7 +1233,7 @@ void ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
         }
         else
         {   
-            //printf("---------------- MISS ONE PACKET (%d/%d)------------------\n",Seq,ActualSEQ);
+            printf("---------------- MISS ONE PACKET (%d/%d)------------------\n",Seq,ActualSEQ);
         }
          ActualSEQ=Seq;
     }    
@@ -1425,6 +1556,7 @@ int main(int argc, char*argv[])
   mlot=43080;
     mtid=480590;    
 
+    FileFreqTiming = open("FSK.ft", O_WRONLY|O_CREAT, 0644);
     
     if(argc>=2)
     {
@@ -1465,6 +1597,7 @@ int main(int argc, char*argv[])
    // InitNounce(43080,430528,0);//26/10- 30/10
     //InitNounce(43080,420524,0);//30/10- 2/11
    // InitNounce(43080,420590,0);//2/11- 5/11
+    InitNounce(43205,1021187,0);//5/11- 8/11
      InitNounce(mlot,mtid,0);   
       
    InitRF();
@@ -1474,12 +1607,18 @@ int main(int argc, char*argv[])
            
     } 
     
+    
+
     printf("\n TEST TX ==================================\n");
+
+    GetStatus(0x1f108958,0);
+     GetStatus(0x1f108958,1);
+          GetStatus(0x1f108958,0x46);   
   TxMessage testtx;
     testtx.Address=0xFFFFFFFF;
   
     //Test encapsulation
-    /*unsigned char MessageTest[50]={0x1a,0x14,0x89,0xfd,0x9d,0x78,0x00,0x01,0x56,0x1b,0x02,0x48,0x00,0x00,0x78,0x03,0xf8,0x05,0xa8,0x05,0xc0,0x05,0x13,0x1a,0x40,0x01,0x01,0x4d,0x00,0x73,0x22,0x48,0x01,0x18,0x03,0x10,0xbc,0xdb,0x05,0x96,0x01,0xf3,0x60,0xe8,0x02,0xbc,0x02,0x25,0x51,0x00};
+    unsigned char MessageTest[50]={0x1a,0x14,0x89,0xfd,0x9d,0x78,0x00,0x01,0x56,0x1b,0x02,0x48,0x00,0x00,0x78,0x03,0xf8,0x05,0xa8,0x05,0xc0,0x05,0x13,0x1a,0x40,0x01,0x01,0x4d,0x00,0x73,0x22,0x48,0x01,0x18,0x03,0x10,0xbc,0xdb,0x05,0x96,0x01,0xf3,0x60,0xe8,0x02,0xbc,0x02,0x25,0x51,0x00};
 
     
     for(int i=0;i<50;i++)
@@ -1487,8 +1626,8 @@ int main(int argc, char*argv[])
         testtx.Body[i]=MessageTest[i];
     }
      testtx.BodyLength=50;
-*/
-unsigned char MessageTest[]={0x07,0x04,0x1f,0x10,0x89,0x5a};
+
+/*unsigned char MessageTest[]={0x07,0x04,0x1f,0x10,0x89,0x5a};
 
     
     for(int i=0;i<6;i++)
@@ -1496,7 +1635,7 @@ unsigned char MessageTest[]={0x07,0x04,0x1f,0x10,0x89,0x5a};
         testtx.Body[i]=MessageTest[i];
     }
      testtx.BodyLength=6;
-
+*/
 
     /*testtx.Body[0]=0x0E;
     testtx.Body[1]=0x01;
@@ -1504,7 +1643,7 @@ unsigned char MessageTest[]={0x07,0x04,0x1f,0x10,0x89,0x5a};
     testtx.BodyLength=3;
     */
          
-    testtx.Sequence=0;
+    testtx.Sequence=1;
 
     PacketizeMessage(&testtx,0,0);
     
