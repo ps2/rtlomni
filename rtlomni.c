@@ -50,7 +50,10 @@ Sync word: 0x54c3
 */
 
 enum {Debug_FSK,Debug_Manchester,Debug_Packet,Debug_Message};
-enum {ACK=0b010,CON=0b100,PDM=0b101,POD=0b111};    
+enum {ACK=0b010,CON=0b100,PDM=0b101,POD=0b111}; 
+ enum {Cmd_GetConfig=3,Cmd_Pairing=7,Cmd_GetStatus=0xe,Cmd_BasalScheduleExtra=0x13,Cmd_InsulinScheduleExtra=0x17,Cmd_SyncTime=0x19,Cmd_InsulinSchedule=0x1a,Cmd_CancelBolus=0x1F,Cmd_CancelPOD=0x1C,Cmd_Diagnose=0x1E};
+    enum {Resp_Status=0x1D,Resp_Tid=0x01,Resp02=0x02,RespError=0x06};
+      
 
 int min( int a, int b ) { return a < b ? a : b; }
 
@@ -312,7 +315,21 @@ int TxAddSubMessage(TxMessage *Message,unsigned char Type,unsigned char *SubMess
 }
 
 
-//
+int TxPairing(unsigned int AddressToPair)
+{
+    TxMessage Message;
+    Message.BodyLength=0;
+    Message.Address=0xFFFFFFFF;
+    Message.Sequence=0;
+    unsigned char PairingSubMessage[4];
+    PairingSubMessage[0]=AddressToPair>>24;
+    PairingSubMessage[1]=AddressToPair>>16;
+    PairingSubMessage[2]=AddressToPair>>8;
+    PairingSubMessage[3]=AddressToPair&0xFF;
+    TxAddSubMessage(&Message,Cmd_Pairing,PairingSubMessage,4);
+    PacketizeMessage(&Message,0,0);
+    return 0;    
+}
 
 
 
@@ -482,8 +499,6 @@ unsigned char printbit(unsigned char Byte,int bitstart,int bitstop)
 
 void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Length,int SeqMessage)
 {
-    enum {Cmd_GetConfig=3,Cmd_Pairing=7,Cmd_GetStatus=0xe,Cmd_BasalScheduleExtra=0x13,Cmd_InsulinScheduleExtra=0x17,Cmd_SyncTime=0x19,Cmd_InsulinSchedule=0x1a,Cmd_CancelBolus=0x1F,Cmd_CancelPOD=0x1C,Cmd_Diagnose=0x1E};
-    enum {Resp_Status=0x1D,Resp_Tid=0x01,Resp02=0x02,RespError=0x06};
     const char *TypeInsulin[]={"Basal","Temp Basal","Bolus","All","All","All","All","All","All"};
 
    
