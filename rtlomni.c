@@ -39,8 +39,8 @@ Licence :
 
 
 
-#define DEBUG_PACKET 
-#define DEBUG_MESSAGE
+//#define DEBUG_PACKET 
+//#define DEBUG_MESSAGE
 
 
 void ParsePacket(unsigned int TimePacket); //TimePacket is in millisecond
@@ -1755,6 +1755,7 @@ if(ModeInput==TRACEFILE)
                          BufferData[IndexData++]=Id2&0xFF;
                         
                     }
+
                     if(Source==CON)
                     {
                         char sHexDigit[3]="0";
@@ -1797,28 +1798,54 @@ if(ModeInput==TRACEFILE)
                 break;
                 case 7:
                 {
-                    if((Source==POD)||(Source==PDM))
-                    {
-                        sscanf(token,"MTYPE:%x",&MType);
-                        BufferData[IndexData++]=MType>>8;
-                        BufferData[IndexData++]=MType&0xFF;
+                    if(token[0]=='M') //MTYPE EXISTING
+                    { 
+                        if((Source==POD)||(Source==PDM))
+                        {
+                            sscanf(token,"MTYPE:%x",&MType);
+                            BufferData[IndexData++]=MType>>8;
+                            BufferData[IndexData++]=MType&0xFF;
+                        }
                     }
+                    else //BODY
+                    {
+                        
+                        char sHexDigit[3]="0";
+                        char *End;
+
+                     for(int i=5;i<strlen(token);i+=2) //5 : SKIP BODY:
+                      {
+                        sHexDigit[0]=token[i];
+                        sHexDigit[1]=token[i+1];
+                    
+                        BufferData[IndexData++]=(unsigned char)strtol(sHexDigit,&End,16);
+                         }
+                    }
+                    
                     
                 }
                 break;
                 case 8:
                 {
-                    char sHexDigit[3]="0";
-                    char *End;
 
-                    for(int i=5;i<strlen(token);i+=2) //5 : SKIP BODY:
-                    {
-                        sHexDigit[0]=token[i];
-                        sHexDigit[1]=token[i+1];
-                    
-                        BufferData[IndexData++]=(unsigned char)strtol(sHexDigit,&End,16);
+                    if(token[0]=='B')
+                    { //MTYPE EXISTING
+                        char sHexDigit[3]="0";
+                        char *End;
+
+                        for(int i=5;i<strlen(token);i+=2) //5 : SKIP BODY:
+                        {
+                            sHexDigit[0]=token[i];
+                            sHexDigit[1]=token[i+1];
+                        
+                            BufferData[IndexData++]=(unsigned char)strtol(sHexDigit,&End,16);
+                        }
                     }
-                    
+                    else
+                    {
+                       sscanf(token,"CRC:%x",&crc);
+                        BufferData[IndexData++]=crc;
+                     }   
                 }
                 break;
                 case 9:
@@ -1827,10 +1854,12 @@ if(ModeInput==TRACEFILE)
                     {
                         sscanf(token,"CRC:%x",&crc);
                         BufferData[IndexData++]=crc;
+                        printf("\n CRC %02x\n",crc);
                     }
                    
                   
                 }
+                break;
 
             }; //end of switch
             field++;
