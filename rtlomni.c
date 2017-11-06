@@ -39,8 +39,8 @@ Licence :
 
 
 
-//#define DEBUG_PACKET 
-//#define DEBUG_MESSAGE
+#define DEBUG_PACKET 
+#define DEBUG_MESSAGE
 
 
 void ParsePacket(unsigned int TimePacket); //TimePacket is in millisecond
@@ -1614,25 +1614,32 @@ int main(int argc, char*argv[])
     // options
     //float FSKDeviationHz=26370.0;
     
-   
-   
+   enum {IQFILE,TRACEFILE};
+   int ModeInput=0;
 
   mlot=43080;
     mtid=480590;    
 
     FileFreqTiming = open("FSK.ft", O_WRONLY|O_CREAT, 0644);
-    
+     char *inputname=argv[1];
     if(argc>=2)
     {
-            iqfile = fopen (argv[1], "r");
-            char ManchesterFileName[255];
-            strcpy(ManchesterFileName,argv[1]);
-            strcat(ManchesterFileName,".man");
-            ManchesterFile=fopen(ManchesterFileName, "wb");
+           
+            if(inputname[strlen(inputname)-1]=='8')
+            {
+                iqfile = fopen (argv[1], "r");
+                char ManchesterFileName[255];
+                strcpy(ManchesterFileName,argv[1]);
+                strcat(ManchesterFileName,".man");
+                ManchesterFile=fopen(ManchesterFileName, "wb");
+                ModeInput=IQFILE;
+            }
+            else
+            {
+                ModeInput=TRACEFILE;
+            }
     }    
-    else    
-            iqfile = fopen ("omniup325.cu8", "r");
-
+    
     
 
     if(argc>=4)
@@ -1642,6 +1649,19 @@ int main(int argc, char*argv[])
      
     }
     
+    // InitNounce(43080,480653,0); // Date 23/10 - 26/10
+   // InitNounce(43080,430528,0);//26/10- 30/10
+    //InitNounce(43080,420524,0);//30/10- 2/11
+   // InitNounce(43080,420590,0);//2/11- 5/11
+    //InitNounce(43205,1021187,0);//5/11- 8/11
+     InitNounce(mlot,mtid,0);   
+     printf("Parse with Lot %ld Tid %ld\n",mlot,mtid); 
+
+    // *****************************************************************************
+    // ******************* IQ FILE PROCESSING **************************************
+    // *****************************************************************************
+if(ModeInput==IQFILE)
+{
     if(strcmp(argv[1],"debug.cu8")!=0) 
     {
         DebugIQ = fopen ("debug.cu8", "wb");
@@ -1657,13 +1677,7 @@ int main(int argc, char*argv[])
 
    
    
- // InitNounce(43080,480653,0); // Date 23/10 - 26/10
-   // InitNounce(43080,430528,0);//26/10- 30/10
-    //InitNounce(43080,420524,0);//30/10- 2/11
-   // InitNounce(43080,420590,0);//2/11- 5/11
-    InitNounce(43205,1021187,0);//5/11- 8/11
-     InitNounce(mlot,mtid,0);   
-      
+ 
    InitRF();
           
     while(ProcessRF())
@@ -1671,8 +1685,161 @@ int main(int argc, char*argv[])
            
     } 
     
-    
+}    
 
+   // *****************************************************************************
+    // ******************* TRACE FILE PROCESSING **************************************
+    // *****************************************************************************
+if(ModeInput==TRACEFILE)
+{
+    
+   char OneLine[500];
+   FILE *fp; 
+    fp = fopen(inputname , "r");
+     if(fp == NULL) {
+      perror("Error opening file");
+      exit(0);
+   }       
+
+   while( fgets (OneLine, 500, fp)!=NULL )
+   {
+        char *str = strdup(OneLine);
+        char *token;
+        int field=0;
+        unsigned int Id1,Id2;
+        int Source=0;
+        int PacketSeq=0;
+        unsigned int crc;
+        unsigned int B9;
+        int Blen;
+        int MType;
+        IndexData=0;
+        while ((token = strsep(&str, " ")))
+        {
+           switch(field)
+            {
+                case 1:
+                {
+                    sscanf(token,"ID1:%x",&Id1);
+                    BufferData[IndexData++]=Id1>>24;
+                    BufferData[IndexData++]=Id1>>16;
+                    BufferData[IndexData++]=Id1>>8;
+                    BufferData[IndexData++]=Id1&0xFF;
+                }
+                break;
+                case 2:
+                {
+                    if(strcmp(token,"PTYPE:POD")==0) Source=POD;
+                    if(strcmp(token,"PTYPE:PDM")==0) Source=PDM;
+                    if(strcmp(token,"PTYPE:ACK")==0) Source=ACK;
+                    if(strcmp(token,"PTYPE:CON")==0) Source=CON;
+                    BufferData[IndexData]=Source<<5;
+                   
+                }
+                break;
+                case 3:
+                {
+                    sscanf(token,"SEQ:%d",&PacketSeq);
+                     BufferData[IndexData++]|=PacketSeq&0x1F;
+                    
+                }
+                break;
+                case 4:
+                {
+                    if((Source==POD)||(Source==PDM)||(Source==ACK))
+                    {
+                        sscanf(token,"ID2:%x",&Id2);
+                        BufferData[IndexData++]=Id2>>24;
+                         BufferData[IndexData++]=Id2>>16;
+                         BufferData[IndexData++]=Id2>>8;
+                         BufferData[IndexData++]=Id2&0xFF;
+                        
+                    }
+                    if(Source==CON)
+                    {
+                        char sHexDigit[3]="0";
+                        char *End;
+
+                        for(int i=4;i<strlen(token);i+=2) //4 skip CON:
+                        {
+                            sHexDigit[0]=token[i];
+                            sHexDigit[1]=token[i+1];
+                            BufferData[IndexData++]=(unsigned char)strtol(sHexDigit,&End,16);
+                        }
+                    }
+                  
+                }
+                break;
+                case 5:
+                {
+                    if((Source==POD)||(Source==PDM))
+                    {
+                        sscanf(token,"B9:%x",&B9);
+                        BufferData[IndexData++]=B9;
+                    }
+                    if((Source==CON)||(Source==ACK))
+                    {
+                        sscanf(token,"CRC:%x",&crc);
+                        BufferData[IndexData++]=crc;
+                    }
+                  
+                }
+                break;
+                case 6:
+                {
+                    if((Source==POD)||(Source==PDM))
+                    {
+                        sscanf(token,"BLEN:%d",&Blen);
+                        BufferData[IndexData++]=Blen;
+                    }
+                    
+                }
+                break;
+                case 7:
+                {
+                    if((Source==POD)||(Source==PDM))
+                    {
+                        sscanf(token,"MTYPE:%x",&MType);
+                        BufferData[IndexData++]=MType>>8;
+                        BufferData[IndexData++]=MType&0xFF;
+                    }
+                    
+                }
+                break;
+                case 8:
+                {
+                    char sHexDigit[3]="0";
+                    char *End;
+
+                    for(int i=5;i<strlen(token);i+=2) //5 : SKIP BODY:
+                    {
+                        sHexDigit[0]=token[i];
+                        sHexDigit[1]=token[i+1];
+                    
+                        BufferData[IndexData++]=(unsigned char)strtol(sHexDigit,&End,16);
+                    }
+                    
+                }
+                break;
+                case 9:
+                {
+                    if((Source==POD)||(Source==PDM))
+                    {
+                        sscanf(token,"CRC:%x",&crc);
+                        BufferData[IndexData++]=crc;
+                    }
+                   
+                  
+                }
+
+            }; //end of switch
+            field++;
+        }//end of line separator
+       ParsePacket(0.0);
+        
+    }
+    
+}
     printf("\n TEST TX ==================================\n");
 
     //GetStatus(0x1f108958,0);
