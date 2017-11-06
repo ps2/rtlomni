@@ -42,9 +42,22 @@ Licence :
 //#define DEBUG_PACKET 
 //#define DEBUG_MESSAGE
 
+#define MAX_BYTE_PER_PACKET (31+6)
+#define MAX_PACKETBYMESSAGE 1000
+typedef struct TxPacketRF
+{
+    unsigned char PacketBufferRF[MAX_BYTE_PER_PACKET];
+    unsigned int PhysicaAddress;
+    unsigned char Type;
+    unsigned char Sequence;
+    int PacketLength;
+} TxPacketRF;
 
-void ParsePacket(unsigned int TimePacket); //TimePacket is in millisecond
 
+int ProcessRF();
+
+TxPacketRF * ParsePacket(unsigned int TimePacket); //TimePacket is in millisecond
+int TxAck(unsigned int Address,int PaquetSequence);
 
 enum {Debug_FSK,Debug_Manchester,Debug_Packet,Debug_Message};
 enum {ACK=0b010,CON=0b100,PDM=0b101,POD=0b111}; 
@@ -239,7 +252,7 @@ void WriteByteManchester(unsigned char Byte,char flip)
 
 void WriteSync()
 {
-    for(int i=0;i<100;i++)
+    for(int i=0;i<50;i++)
     {
         WriteByteManchester(0x54,0);
     }
@@ -250,24 +263,21 @@ void WriteEnd()
 {
        for(int i=0;i<5;i++)
            WriteFSK(1);
-        WriteTone(0,1e9);
+        WriteTone(0,1e8);//100 ms
         
 }
+
+void TxPause(int millisec)
+{
+    WriteTone(0,millisec*1e6);//100 ms
+}
+
 
 // ************************* END OF RPITX *******************************
 
 
 
-#define MAX_BYTE_PER_PACKET (31+6)
-#define MAX_PACKETBYMESSAGE 1000
-typedef struct TxPacketRF
-{
-    unsigned char PacketBufferRF[MAX_BYTE_PER_PACKET];
-    unsigned int PhysicaAddress;
-    unsigned char Type;
-    unsigned char Sequence;
-    int PacketLength;
-} TxPacketRF;
+
 
 
 
@@ -399,28 +409,67 @@ int TxAddSubMessage(TxMessage *Message,unsigned char Type,unsigned char *SubMess
 
 //****************** RF Layer ***********************
 
-int TxTransmit(TxMessage *Message)
+unsigned int GlobalAddress;
+int GlobalPacketSequence=0;
+int GlobalMessageSequence=0;
+
+int TxTransmit(TxMessage *Message,int WaitForAnswer)
 {
 
     
-        
-	
-
-
-
-
     for(int i=0;i<Message->NbPacket;i++)
     {
         WriteSync();
         for(int j=0;j<Message->TxPoolBuffer[i].PacketLength;j++) WriteByteManchester(Message->TxPoolBuffer[i].PacketBufferRF[j],1); 
         WriteEnd(); 
-
+    
+        
         printf("\nTx%d:",i);
         for(int j=0;j<Message->TxPoolBuffer[i].PacketLength;j++) printf("%02x",Message->TxPoolBuffer[i].PacketBufferRF[j]);
         printf("\n");
+        /*
         memcpy(BufferData,Message->TxPoolBuffer[i].PacketBufferRF,Message->TxPoolBuffer[i].PacketLength);
-        IndexData=Message->TxPoolBuffer[i].PacketLength;
-        ParsePacket(0.0);
+        IndexData=Message->TxPoolBuffer[i].PacketLength;*/
+        if(WaitForAnswer)
+        {
+            int HaveResponse=-1;
+            while(HaveResponse==-1)
+            {
+                if(ProcessRF()==2)
+                {
+                    TxPacketRF *ReceivePacket=ParsePacket(0.0);
+                    if(ReceivePacket==NULL)
+                         continue;
+                    else
+                    {
+                        HaveResponse=ReceivePacket->Type;
+                        switch(ReceivePacket->Type)
+                        {
+                            case ACK:
+                            {
+                                   
+                            }
+                            break;
+                            case POD:
+                            {
+                                GlobalPacketSequence=ReceivePacket->Sequence; 
+                                TxAck(GlobalAddress,++GlobalPacketSequence);                            
+                            }                            
+                            break;
+                            case CON:
+                            {
+                                GlobalPacketSequence=ReceivePacket->Sequence; 
+                                TxAck(GlobalAddress,++GlobalPacketSequence);                            
+                            }
+                            break;
+                            case PDM:HaveResponse=-1; //Do not handle from PDM itself
+                            break;
+                        }
+                    }
+                 }
+                TxPause(100);
+            }
+        }    
     }
     return 0;
 }
@@ -442,7 +491,7 @@ int TxAck(unsigned int Address,int PaquetSequence)
     PacketRF->Type=ACK;
     SetPacket(PacketRF,&Message.CompleteMessage[0],4);
     Message.NbPacket=1;
-    TxTransmit(&Message);
+    TxTransmit(&Message,0);
     return 0;
 }
 // ***************************** TX SUBMESSAGES *****************************************
@@ -460,7 +509,7 @@ int TxPairing(unsigned int AddressToPair)
     PairingSubMessage[3]=AddressToPair&0xFF;
     TxAddSubMessage(&Message,Cmd_Pairing,PairingSubMessage,4);
     PacketizeMessage(&Message,1,0);
-    TxTransmit(&Message);
+    TxTransmit(&Message,1);
     return 0;    
 }
 
@@ -469,7 +518,7 @@ int TxGetStatus(unsigned int Address,int Type)
     TxMessage Message;
     Message.BodyLength=0;
     Message.Address=Address;
-    Message.Sequence=1;
+    Message.Sequence=GlobalMessageSequence;
     unsigned char StatusSubMessage[1];
 
     if(Type>1)  
@@ -479,8 +528,8 @@ int TxGetStatus(unsigned int Address,int Type)
     }
      StatusSubMessage[0]=Type;    
     TxAddSubMessage(&Message,Cmd_GetStatus,StatusSubMessage,1);
-    PacketizeMessage(&Message,1,0);
-    TxTransmit(&Message);
+    PacketizeMessage(&Message,++GlobalPacketSequence,0);
+    TxTransmit(&Message,1);
     return 0;    
 }
 
@@ -522,7 +571,7 @@ int TxGetConfig(unsigned int Address,unsigned int Lot,unsigned int Tid)
     
      TxAddSubMessage(&Message,Cmd_GetConfig,ConfigSubMessage,19);
     PacketizeMessage(&Message,1,0);
-    TxTransmit(&Message);
+    TxTransmit(&Message,1);
     
 
     
@@ -1143,11 +1192,11 @@ void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMes
 
 
 
-void ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
+TxPacketRF * ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
 {
    
     
-     
+     static TxPacketRF PacketRF;
     
  /*    printf("\nPACKET : ");
     for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]);
@@ -1160,7 +1209,7 @@ void ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
     #endif
     /* ************* END OF WORKAROUND FOR CC TRANSMITION ****************/
     
-    if(IndexData<4) return;
+    if(IndexData<4) return NULL;
  #ifdef DEBUG_PACKET
     printf("\n%.3f:",TimePacket/1e3);
 #endif
@@ -1171,14 +1220,17 @@ void ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
         for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]);
         printf("\n");
         #endif
-        return;
+        return NULL;
     }
    
     int PacketType=(BufferData[4]>>5);
-    
+    PacketRF.Type=PacketType;
     int Source=PacketType;
+        
     //printf(" SEQ:%d \n",BufferData[4]&0x1F);
     int Seq=BufferData[4]&0x1F;
+    PacketRF.Sequence=Seq;
+    PacketRF.PhysicaAddress=(BufferData[0]<<24)|(BufferData[1]<<16)|(BufferData[2]<<8)|(BufferData[3]);
      #ifdef DEBUG_PACKET    
     printf("New packet type %x with %d length : ",PacketType,IndexData);   for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]); printf("\n");
     #endif
@@ -1282,7 +1334,7 @@ void ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
         for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]);
         printf("\n");
         #endif
-        return;
+        return NULL;
     }    
     if(ActualSEQ==-1) 
     {
@@ -1301,7 +1353,7 @@ void ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
         }
          ActualSEQ=Seq;
     }    
-
+    return &PacketRF;
        
 }
 
@@ -1469,6 +1521,7 @@ int ProcessRF()
             static unsigned int SampleTime=0; 
              int bytes_read=0;
               static  int Lock=-1;
+           
              bytes_read = fread(iq_buffer, 1, k*2, iqfile);
             if((bytes_read>0)&&(DebugIQ!=NULL)) fwrite(iq_buffer,1,bytes_read,DebugIQ);
            if (bytes_read > 0)
@@ -1558,12 +1611,14 @@ int ProcessRF()
                             if(Manchester==-2)
                             {
                                 //printf("\n Unlock \n");
-                                ParsePacket(SampleTime*1e3/IQSR); //ms
+                                //ParsePacket(SampleTime*1e3/IQSR); //ms
+                                
                                 
                                 FSKSyncStatus=0; // Error in Manchester 
-                                IndexData=0;
+                                //IndexData=0;
                                 ManchesterAdd(-1);
                                 
+                                return(2);
                                 
                             }
                             
@@ -1579,7 +1634,7 @@ int ProcessRF()
                         int InTimeSync=GetFSKSync(Sym[i]);
                         switch(InTimeSync)
                         {
-                            case FSK_SYNC_ON: FSKSyncStatus=1;break;
+                            case FSK_SYNC_ON: FSKSyncStatus=1; IndexData=0;break;
                             case FSK_SYNC_OFF:FSKSyncStatus=0;break;
                         }
                     }
@@ -1679,11 +1734,17 @@ if(ModeInput==IQFILE)
    
  
    InitRF();
-          
-    while(ProcessRF())
+    GlobalPacketSequence=0;    
+    GlobalAddress=0x1f108958;
+    GlobalMessageSequence=0;
+    TxGetStatus(GlobalAddress,0);
+    TxPause(1000);
+    /*while(1)
     {
-           
-    } 
+        int Result=ProcessRF();
+        if(Result==2) ParsePacket(0); 
+        if(Result==0) break;       
+    } */
     
 }    
 
@@ -1697,8 +1758,8 @@ if(ModeInput==TRACEFILE)
    FILE *fp; 
     fp = fopen(inputname , "r");
      if(fp == NULL) {
-      perror("Error opening file");
-      exit(0);
+      perror("Error opening file\n");
+      
    }       
 
    while( fgets (OneLine, 500, fp)!=NULL )
@@ -1871,51 +1932,12 @@ if(ModeInput==TRACEFILE)
 }
     printf("\n TEST TX ==================================\n");
 
-    //GetStatus(0x1f108958,0);
-    TxGetConfig(0x1f108958,43205,1021187);
-    TxAck(0x1f108958,3);   
-  TxMessage testtx;
-    testtx.Address=0xFFFFFFFF;
-  
-    //Test encapsulation
-    unsigned char MessageTest[50]={0x1a,0x14,0x89,0xfd,0x9d,0x78,0x00,0x01,0x56,0x1b,0x02,0x48,0x00,0x00,0x78,0x03,0xf8,0x05,0xa8,0x05,0xc0,0x05,0x13,0x1a,0x40,0x01,0x01,0x4d,0x00,0x73,0x22,0x48,0x01,0x18,0x03,0x10,0xbc,0xdb,0x05,0x96,0x01,0xf3,0x60,0xe8,0x02,0xbc,0x02,0x25,0x51,0x00};
-
-    
-    for(int i=0;i<50;i++)
-    {  
-        testtx.Body[i]=MessageTest[i];
-    }
-     testtx.BodyLength=50;
-
-/*unsigned char MessageTest[]={0x07,0x04,0x1f,0x10,0x89,0x5a};
-
-    
-    for(int i=0;i<6;i++)
-    {  
-        testtx.Body[i]=MessageTest[i];
-    }
-     testtx.BodyLength=6;
-*/
-
-    /*testtx.Body[0]=0x0E;
-    testtx.Body[1]=0x01;
-    testtx.Body[2]=0;
-    testtx.BodyLength=3;
-    */
-         
-    testtx.Sequence=1;
-
-    PacketizeMessage(&testtx,0,0);
-    
-    for(int i=0;i<testtx.NbPacket;i++)
-    {
-    
-       
-        memcpy(BufferData,testtx.TxPoolBuffer[i].PacketBufferRF,testtx.TxPoolBuffer[i].PacketLength);
-        IndexData=testtx.TxPoolBuffer[i].PacketLength;
-        //ParsePacket(0.0);
-    }
-      
+   // for(int i=0;i<5;i++)    
+    //    TxGetStatus(0x1f108958,0);
+    //TxGetConfig(0x1f108958,43205,1021187);
+    //TxPause(100);
+    //TxAck(0x1f108958,3);   
+            
 
     #ifdef DEBUG_FM
     if(DebugFM!=NULL) fclose(DebugFM);      
