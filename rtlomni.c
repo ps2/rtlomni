@@ -44,7 +44,7 @@ Licence :
 
 
 //#define DEBUG_PACKET 
-#define DEBUG_MESSAGE
+//#define DEBUG_MESSAGE
 
 #define MAX_BYTE_PER_PACKET (31+6)
 #define MAX_PACKETBYMESSAGE 1000
@@ -940,23 +940,24 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                         //printf("4zero:");printbit(SubMessage[1],4,7);printf(" ");
 
                         printf("Table1[2]:");printbit(SubMessage[1],0,3);printbit(SubMessage[2],0,7);printbit(SubMessage[3],7,7);printf(" ");//4bits+8bits+1bit=13bits : Table1[2]
-                        printf("seqnumb:");printbit(SubMessage[3],3,6);printf(" ");//4bits
-                        printf("sum table:");printbit(SubMessage[3],0,2);printbit(SubMessage[4],0,7);printf(" "); //3+8=11bits   
-                                       
+                        //printf("seqnumb:");printbit(SubMessage[3],3,6);printf(" ");//4bits    
+                        int ResponseMessageFromPod=(SubMessage[3]>>3)&0xF;
+                        printf("In response to POD Msg#%d ",ResponseMessageFromPod);
+                        //printbit(SubMessage[3],0,2);printbit(SubMessage[4],0,7);printf(" "); //3+8=11bits   
+                        int SumTable=((SubMessage[3]&0x3)<<8)|SubMessage[4];
+                        printf("sum table:%d ",SumTable);
+                        
+               
                         //dword:1 bit (indicates event 0x14 was logged) 8 bits (internal value) 13 bits Pod time active (Tab1[1]) 10 bits Reservoir level (Tab1[0])
                         printf("Event14:");printbit(SubMessage[5],7,7);printf(" ");
                         printf("Internal value:");printbit(SubMessage[5],0,6);printbit(SubMessage[6],7,7);printf(" ");//7bits+1bits
-                        printf("Minutes Actives %d",((SubMessage[6]&0x7F)<<6)|((SubMessage[7]>>2))&0x3F);printf(" ");//7+6
-
-                        //printf("Tab1[1]:");printbit(SubMessage[6],0,6);printbit(SubMessage[7],2,7);printf(" ");
-                        printf("Tab1[1]:%04x",((SubMessage[6]&0x7F)<<6)|((SubMessage[7]>>2)&0x3F));printf(" ");
+                        //printf("Tab1[1]:%04x",((SubMessage[6]&0x7F)<<6)|((SubMessage[7]>>2)&0x3F));printf(" "); //Minutes actives
+                        printf("Minutes Actives %d",((SubMessage[6]&0x7F)<<6)|((SubMessage[7]>>2))&0x3F);printf(" ");//7+6  
                         int Reservoir=(((SubMessage[7]&0x03)<<8)+(SubMessage[8]));
                         if((Reservoir&0xFF)!=0xFF)
                             printf("Reservoir Level %0.01fU",(((SubMessage[7]&0x03)<<8)|(SubMessage[8]))*50.0/1024.0);  
-                        /*else
-                            printf("Reservoir Level %0.01fU",200.0-((SubMessage[6]&0x7F)>>2)*1);  // 200U is the max, POD has maybe not sensor over 50 to measure*/
-
-                        printf("Tab1[0]:%04x",((SubMessage[7]&0x3)<<6)|(SubMessage[8]));printf(" ");
+                       
+                        //printf("Tab1[0]:%04x",((SubMessage[7]&0x3)<<6)|(SubMessage[8]));printf(" ");//Reservoir
 
             }
         break;
