@@ -44,7 +44,7 @@ Licence :
 
 
 //#define DEBUG_PACKET 
-//#define DEBUG_MESSAGE
+#define DEBUG_MESSAGE
 
 #define MAX_BYTE_PER_PACKET (31+6)
 #define MAX_PACKETBYMESSAGE 1000
@@ -923,25 +923,40 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         printf("Resp Status"); 
             if(Length>=9)
             {
-                        printf(":");printf("Table7:");printbit(SubMessage[0],4,7);printf(" EEEE:");printbit(SubMessage[0],0,3);printf(" ");
-                        printf("4zero:");printbit(SubMessage[1],4,7);printf(" ");
-                        printf("Table1[2]:");printbit(SubMessage[1],0,3);printbit(SubMessage[2],0,7);printbit(SubMessage[3],7,7);printf(" ");
-                        printf("seqnumb:");printbit(SubMessage[3],3,6);printf(" ");
-                        printf("sum table:");printbit(SubMessage[3],0,2);printbit(SubMessage[4],0,7);printf(" ");    
-                       
+                        printf(":");
+                        //byte0: bits ABCDEEEE. Bits A, B, C, D indicate values of internal table 7. 4-bit value EEEE is an important internal state value. 
+                        switch(SubMessage[0]>>4)
+                        {
+                            case 0:printf("Interrupt basal");break;
+                            case 1:printf("Basal running");break;
+                            case 2:printf("Temp Basal running");break;
+                            case 5:printf("Cannot read while bolusing");break;
+                            default:printf("Unknown %x",SubMessage[0]>>4);break;
+                        } 
+                        printf(" ");  
+                        printf("Table7:");printbit(SubMessage[0],0,3);printf(" ");
+        
+                        //dword: 4 zero bits. 13 bits with Table1[2]. 4 bits (maybe message sequence number). 11 bits (sum of various Table entries divided by 10 and rounded up).
+                        //printf("4zero:");printbit(SubMessage[1],4,7);printf(" ");
+
+                        printf("Table1[2]:");printbit(SubMessage[1],0,3);printbit(SubMessage[2],0,7);printbit(SubMessage[3],7,7);printf(" ");//4bits+8bits+1bit=13bits : Table1[2]
+                        printf("seqnumb:");printbit(SubMessage[3],3,6);printf(" ");//4bits
+                        printf("sum table:");printbit(SubMessage[3],0,2);printbit(SubMessage[4],0,7);printf(" "); //3+8=11bits   
+                                       
+                        //dword:1 bit (indicates event 0x14 was logged) 8 bits (internal value) 13 bits Pod time active (Tab1[1]) 10 bits Reservoir level (Tab1[0])
                         printf("Event14:");printbit(SubMessage[5],7,7);printf(" ");
-                        printf("Internal value:");printbit(SubMessage[5],0,6);printbit(SubMessage[6],7,7);printf(" ");
-                        printf("Minutes Actives %d",((SubMessage[5]&0x3F)<<6)+(SubMessage[6]>>7));printf(" ");
+                        printf("Internal value:");printbit(SubMessage[5],0,6);printbit(SubMessage[6],7,7);printf(" ");//7bits+1bits
+                        printf("Minutes Actives %d",((SubMessage[6]&0x7F)<<6)|((SubMessage[7]>>2))&0x3F);printf(" ");//7+6
 
                         //printf("Tab1[1]:");printbit(SubMessage[6],0,6);printbit(SubMessage[7],2,7);printf(" ");
-                        printf("Tab1[1]:%04x",((SubMessage[6]&0x7F)<<6)+((SubMessage[7]>>2)&0x3F));printf(" ");
-                        int Reservoir=(((SubMessage[6]&0x03)<<6)+(SubMessage[7]>>2));
+                        printf("Tab1[1]:%04x",((SubMessage[6]&0x7F)<<6)|((SubMessage[7]>>2)&0x3F));printf(" ");
+                        int Reservoir=(((SubMessage[7]&0x03)<<8)+(SubMessage[8]));
                         if((Reservoir&0xFF)!=0xFF)
-                            printf("Reservoir Level %0.01fU",(((SubMessage[6]&0x03)<<6)+(SubMessage[7]>>2))*50.0/256.0);  
+                            printf("Reservoir Level %0.01fU",(((SubMessage[7]&0x03)<<8)|(SubMessage[8]))*50.0/1024.0);  
                         /*else
                             printf("Reservoir Level %0.01fU",200.0-((SubMessage[6]&0x7F)>>2)*1);  // 200U is the max, POD has maybe not sensor over 50 to measure*/
 
-                        printf("Tab1[0]:%04x",((SubMessage[7]&0x3)<<6)+(SubMessage[8]));printf(" ");
+                        printf("Tab1[0]:%04x",((SubMessage[7]&0x3)<<6)|(SubMessage[8]));printf(" ");
 
             }
         break;
@@ -1074,9 +1089,12 @@ void ParseSubMessage(int Seq,int Source,unsigned char *Message,int Length,int Se
         int Type=Message[i++];
         unsigned char Submessage[MAXPACKETLENGTH];
         //printf("%02x+\n",Message[i]);
-        int SubLength=Message[i++];
+        int SubLength;
         
-        if(Type==0x1D) SubLength=Length; //Unlike other messages, the second byte holds data rather than the message length. The reason for this is unknown.
+        if(Type==0x1D)
+             SubLength=Length; //Unlike other messages, the second byte holds data rather than the message length. The reason for this is unknown.
+        else
+            SubLength=Message[i++];    
         if(SubLength>Length) {printf("Error in submessage lentgth expected %d/ Get %d\n",SubLength,Length);SubLength=Length;}
         for(int j=0;j<SubLength;j++)
         {    
