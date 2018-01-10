@@ -1675,7 +1675,8 @@ Usage:rtlomni -i File [-l LotID] [-t Tid][-h] \n\
 -l            LotID \n\
 -t            Tide \n\
 -h            help (print this help).\n\
-Example : .\\rtlomni -i omniup325.cu8 \n\
+Example : .\\rtlomni -i omniup325.cu8 for reading a capture file from rtlsdr\n\
+Example : .\\rtlomni -i badcrc.txt for reading a capture file from rfcat\n\
 \n", \
 PROGRAM_VERSION);
 
@@ -1696,7 +1697,7 @@ int main(int argc, char*argv[])
 
     FileFreqTiming = open("FSK.ft", O_WRONLY|O_CREAT, 0644);
     int a;
-	int anyargs = 1;
+	int anyargs = 0;
     char inputname[255];
     strcpy(inputname,"omniup325.cu8");
 
