@@ -23,6 +23,8 @@ Licence :
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#define PROGRAM_VERSION "0.0.1"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,6 +36,8 @@ Licence :
        #include <sys/stat.h>
        #include <fcntl.h>
 #include <time.h>
+#include <stdio.h>
+#include <ctype.h>
 
 #include <liquid/liquid.h>
 
@@ -1661,6 +1665,21 @@ int ProcessRF()
 //*********************************** MAIN PROGRAM **************************************************
 //***************************************************************************************************
 
+void print_usage()
+{
+
+	fprintf(stderr,\
+"rtlomni -%s\n\
+Usage:rtlomni -i File [-l LotID] [-t Tid][-h] \n\
+-i            Input File (RF type(.cu8) or RFTrace from RfCat \n\
+-l            LotID \n\
+-t            Tide \n\
+-h            help (print this help).\n\
+Example : .\\rtlomni -i omniup325.cu8 \n\
+\n", \
+PROGRAM_VERSION);
+
+} /* end function print_usage */
   
 
 
@@ -1676,15 +1695,70 @@ int main(int argc, char*argv[])
     mtid=480590;    
 
     FileFreqTiming = open("FSK.ft", O_WRONLY|O_CREAT, 0644);
-     char *inputname=argv[1];
-    if(argc>=2)
-    {
+    int a;
+	int anyargs = 1;
+    char inputname[255];
+    strcpy(inputname,"omniup325.cu8");
+
+
+
+ while (1)
+	{
+		a = getopt(argc, argv, "i:l:t:h");
+
+		if (a == -1)
+		{
+			if (anyargs) break;
+			else a = 'h'; //print usage and exit
+		}
+		anyargs = 1;
+
+		switch (a)
+		{
+		case 'i': // InputFile
+			strcpy(inputname,optarg);	
+			break;
+        case 'l': // Lot
+			mlot=atol(optarg);
+			break;
+        case 't': // Tid
+			 mtid=atol(argv[3]);
+			break; 
+		case 'h': // help
+			print_usage();
+			exit(0);
+			break;
+		case -1:
+			break;
+		case '?':
+			if (isprint(optopt))
+			{
+				fprintf(stderr, "kisspectrum `-%c'.\n", optopt);
+			}
+			else
+			{
+				fprintf(stderr, "kisspectrum: unknown option character `\\x%x'.\n", optopt);
+			}
+			print_usage();
+
+			exit(1);
+			break;
+		default:
+			print_usage();
+			exit(1);
+			break;
+		}/* end switch a */
+	}/* end while getopt() */
+
+
+     
+    
            
             if(inputname[strlen(inputname)-1]=='8')
             {
-                iqfile = fopen (argv[1], "r");
+                iqfile = fopen (inputname, "r");
                 char ManchesterFileName[255];
-                strcpy(ManchesterFileName,argv[1]);
+                strcpy(ManchesterFileName,inputname);
                 strcat(ManchesterFileName,".man");
                 ManchesterFile=fopen(ManchesterFileName, "wb");
                 ModeInput=IQFILE;
@@ -1693,16 +1767,10 @@ int main(int argc, char*argv[])
             {
                 ModeInput=TRACEFILE;
             }
-    }    
-    
+        
     
 
-    if(argc>=4)
-    {
-        mlot=atol(argv[2]);
-        mtid=atol(argv[3]);
-     
-    }
+    
     
     // InitNounce(43080,480653,0); // Date 23/10 - 26/10
    // InitNounce(43080,430528,0);//26/10- 30/10
@@ -1710,14 +1778,14 @@ int main(int argc, char*argv[])
    // InitNounce(43080,420590,0);//2/11- 5/11
     //InitNounce(43205,1021187,0);//5/11- 8/11
      InitNounce(mlot,mtid,0);   
-     printf("Parse with Lot %ld Tid %ld\n",mlot,mtid); 
+     fprintf(stderr,"Parse with Lot %ld Tid %ld\n",mlot,mtid); 
 
     // *****************************************************************************
     // ******************* IQ FILE PROCESSING **************************************
     // *****************************************************************************
 if(ModeInput==IQFILE)
 {
-    if(strcmp(argv[1],"debug.cu8")!=0) 
+    if(strcmp(inputname,"debug.cu8")!=0) 
     {
         DebugIQ = fopen ("debug.cu8", "wb");
         if(DebugIQ==NULL) {printf("Error opeing output file\n");exit(0);}
@@ -1727,8 +1795,8 @@ if(ModeInput==IQFILE)
       DebugFM = fopen ("debugfm.cf32", "wb");
       #endif  
     
-    //iqfile = fopen ("fifo.cu8", "r");
-    if(iqfile==NULL) {printf("Missing input file\n");exit(0);}
+    fprintf(stderr,"Read I/Q from %s file\n",inputname);
+
 
    
    
