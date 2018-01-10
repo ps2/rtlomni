@@ -1737,14 +1737,14 @@ if(ModeInput==IQFILE)
     GlobalPacketSequence=0;    
     GlobalAddress=0x1f108958;
     GlobalMessageSequence=0;
-    TxGetStatus(GlobalAddress,0);
-    TxPause(1000);
-    /*while(1)
+    //TxGetStatus(GlobalAddress,0);
+    //TxPause(1000);
+    while(1)
     {
         int Result=ProcessRF();
         if(Result==2) ParsePacket(0); 
         if(Result==0) break;       
-    } */
+    } 
     
 }    
 
