@@ -86,7 +86,7 @@ FILE *DebugFM=NULL;
 
 
 int ActualSEQ=-1;  
-
+int colorize=0;
 
 #define ANSI_COLOR_RED     "\x1b[31m"
 #define ANSI_COLOR_GREEN   "\x1b[32m"
@@ -696,10 +696,10 @@ int CheckNonce(unsigned long Nounce)
                     GeneralIndexNounce=i;
                    else
                    {
-                      printf(ANSI_COLOR_RED);   
+                      if(colorize) printf(ANSI_COLOR_RED);   
                      printf("--Nonce skipped %d/%d--",GeneralIndexNounce,i);
                      GeneralIndexNounce=i; // We set with the new index found   
-                     printf(ANSI_COLOR_GREEN);      
+                     if(colorize) printf(ANSI_COLOR_GREEN);      
                    } 
                   
                   return i;
@@ -755,13 +755,13 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         
         printf("#%d POD %02x",SeqMessage,Type);
          printf("(%d)->",Length);
-        printf(ANSI_COLOR_GREEN);
+        if(colorize) printf(ANSI_COLOR_GREEN);
     }
     if(Source==PDM)
     {    
         printf("#%d PDM %02x",SeqMessage,Type);
          printf("(%d)->",Length);
-        printf(ANSI_COLOR_BLUE);
+        if(colorize) printf(ANSI_COLOR_BLUE);
         
     }
    
@@ -942,10 +942,10 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                         printf("Table1[2]:");printbit(SubMessage[1],0,3);printbit(SubMessage[2],0,7);printbit(SubMessage[3],7,7);printf(" ");//4bits+8bits+1bit=13bits : Table1[2]
                         //printf("seqnumb:");printbit(SubMessage[3],3,6);printf(" ");//4bits    
                         int ResponseMessageFromPod=(SubMessage[3]>>3)&0xF;
-                        printf("In response to POD Msg#%d ",ResponseMessageFromPod);
+                        printf("In response to PDM Msg#%d ",ResponseMessageFromPod);
                         //printbit(SubMessage[3],0,2);printbit(SubMessage[4],0,7);printf(" "); //3+8=11bits   
                         int SumTable=((SubMessage[3]&0x3)<<8)|SubMessage[4];
-                        printf("sum table:%d ",SumTable);
+                        printf("sum table(*10):%d ",SumTable*10);
                         
                
                         //dword:1 bit (indicates event 0x14 was logged) 8 bits (internal value) 13 bits Pod time active (Tab1[1]) 10 bits Reservoir level (Tab1[0])
@@ -1061,7 +1061,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         }
         break;
         default:
-        printf(ANSI_COLOR_RED);
+        if(colorize) printf(ANSI_COLOR_RED);
         printf("Submessage not parsed :%02x(%d)",Type,Length);
         for(int i=0;i<Length;i++) printf("%02x",SubMessage[i]);
        
@@ -1069,7 +1069,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         break; 
 
     }
-    printf(ANSI_COLOR_RESET);
+    if(colorize) if(colorize) printf(ANSI_COLOR_RESET);
     printf("\n");
     
 }
@@ -1689,10 +1689,11 @@ void print_usage()
 
 	fprintf(stderr,\
 "rtlomni -%s\n\
-Usage:rtlomni -i File [-l LotID] [-t Tid][-h] \n\
+Usage:rtlomni -i File [-l LotID] [-t Tid][-c][-h] \n\
 -i            Input File (RF type(.cu8) or RFTrace from RfCat \n\
 -l            LotID \n\
 -t            Tide \n\
+-c            Colorize messages \n\
 -h            help (print this help).\n\
 Example : .\\rtlomni -i omniup325.cu8 for reading a capture file from rtlsdr\n\
 Example : .\\rtlomni -i badcrc.txt for reading a capture file from rfcat\n\
@@ -1724,7 +1725,7 @@ int main(int argc, char*argv[])
 
  while (1)
 	{
-		a = getopt(argc, argv, "i:l:t:h");
+		a = getopt(argc, argv, "i:l:t:ch");
 
 		if (a == -1)
 		{
@@ -1744,6 +1745,9 @@ int main(int argc, char*argv[])
         case 't': // Tid
 			 mtid=atol(argv[3]);
 			break; 
+        case 'c': // Colorize message
+			 colorize=1;
+			break;     
 		case 'h': // help
 			print_usage();
 			exit(0);
@@ -2018,7 +2022,7 @@ if(ModeInput==TRACEFILE)
     }
     
 }
-    printf("\n TEST TX ==================================\n");
+   // printf("\n TEST TX ==================================\n");
 
    // for(int i=0;i<5;i++)    
     //    TxGetStatus(0x1f108958,0);
