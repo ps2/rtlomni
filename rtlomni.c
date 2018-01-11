@@ -947,6 +947,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                             case 6:printf("Injection done");break;
                             case 8:printf("Normal running");break;
                             case 9:printf("Running with low insulin");break;
+                            case 15:printf("Inactive");break;
                             default:printf("Unknown %d",PodStateTable7);  
                         
                         };
@@ -954,7 +955,10 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                         //dword: 4 zero bits. 13 bits with Table1[2]. 4 bits (maybe message sequence number). 11 bits (sum of various Table entries divided by 10 and rounded up).
                         //printf("4zero:");printbit(SubMessage[1],4,7);printf(" ");
 
-                        printf("Table1[2]:");printbit(SubMessage[1],0,3);printbit(SubMessage[2],0,7);printbit(SubMessage[3],7,7);printf(" ");//4bits+8bits+1bit=13bits : Table1[2]
+                        //printf("Table1[2]:");printbit(SubMessage[1],0,3);printbit(SubMessage[2],0,7);printbit(SubMessage[3],7,7);printf(" ");//4bits+8bits+1bit=13bits : Table1[2]
+                        int Table12=((SubMessage[1]&0xF)<<9)|(SubMessage[2]<<1)|(SubMessage[3]>>7);
+                        //printf("Table1[2]:%x ",Table12);
+                        printf("Insulin(total):%0.2fu ",Table12*0.05);
                         //printf("seqnumb:");printbit(SubMessage[3],3,6);printf(" ");//4bits    
                         int ResponseMessageFromPod=(SubMessage[3]>>3)&0xF;
                         printf("PODMsg#%d ",ResponseMessageFromPod);
@@ -962,19 +966,23 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                         int SumTable=((SubMessage[3]&0x3)<<8)|SubMessage[4];
 
                         //printf("sum table(*10):%d ",SumTable*10);
-                        printf("Insulin not delivered:%fu",SumTable*0.05);
+                        printf("Insulin not delivered:%0.2fu",SumTable*0.05);
                         printf(" ");
                
                         //dword:1 bit (indicates event 0x14 was logged) 8 bits (internal value) 13 bits Pod time active (Tab1[1]) 10 bits Reservoir level (Tab1[0])
-                        printf("Event14:");printbit(SubMessage[5],7,7);printf(" ");
+                        int Event14=SubMessage[5]>>7;
+                        if(Event14)
+                            printf("Event14:");printbit(SubMessage[5],7,7);printf(" ");
+
                         printf("Alert:");
                         //printbit(SubMessage[5],0,6);printbit(SubMessage[6],7,7);printf(" ");//7bits+1bits
-                        int InternalValue=((SubMessage[5]&0x3F)<<1)|(SubMessage[6]>>7);
+                        int InternalValue=((SubMessage[5]&0x7F)<<1)|(SubMessage[6]>>7);
                         switch(InternalValue)
                         {
                               case 0x8:printf("Perim soon");break;
                               case 0x80:printf("Replace POD");break;  
                               case 0x82:printf("Replace PODEx");break;    
+                              
                               case 0:printf("Normal");break;
                               default:printf("Unknown x%x",InternalValue);break;
                         }
