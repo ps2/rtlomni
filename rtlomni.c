@@ -38,7 +38,7 @@ Licence :
 #include <time.h>
 #include <stdio.h>
 #include <ctype.h>
-
+#include <signal.h>
 #include <liquid/liquid.h>
 
 
@@ -578,7 +578,7 @@ int TxGetConfig(unsigned int Address,unsigned int Lot,unsigned int Tid)
     PacketizeMessage(&Message,1,0);
     TxTransmit(&Message,1);
     
-
+    return 0;
     
 }
 
@@ -931,29 +931,60 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                             case 0:printf("Interrupt basal");break;
                             case 1:printf("Basal running");break;
                             case 2:printf("Temp Basal running");break;
+                            case 4:printf("Purgin");break;
                             case 5:printf("Cannot read while bolusing");break;
                             default:printf("Unknown %x",SubMessage[0]>>4);break;
                         } 
                         printf(" ");  
-                        printf("Table7:");printbit(SubMessage[0],0,3);printf(" ");
-        
+                        //printf("Table7:");printbit(SubMessage[0],0,3);printf(" ");
+                        printf("PODState:");
+                        int PodStateTable7=SubMessage[0]&0xF;
+                        switch(PodStateTable7)
+                        {
+                            case 3:printf("Pairing success");break;
+                            case 4:printf("Purging");break;
+                            case 5:printf("Ready for injection");break;
+                            case 6:printf("Injection done");break;
+                            case 8:printf("Normal running");break;
+                            case 9:printf("Running with low insulin");break;
+                            default:printf("Unknown %d",PodStateTable7);  
+                        
+                        };
+                        printf(" ");
                         //dword: 4 zero bits. 13 bits with Table1[2]. 4 bits (maybe message sequence number). 11 bits (sum of various Table entries divided by 10 and rounded up).
                         //printf("4zero:");printbit(SubMessage[1],4,7);printf(" ");
 
                         printf("Table1[2]:");printbit(SubMessage[1],0,3);printbit(SubMessage[2],0,7);printbit(SubMessage[3],7,7);printf(" ");//4bits+8bits+1bit=13bits : Table1[2]
                         //printf("seqnumb:");printbit(SubMessage[3],3,6);printf(" ");//4bits    
                         int ResponseMessageFromPod=(SubMessage[3]>>3)&0xF;
-                        printf("In response to PDM Msg#%d ",ResponseMessageFromPod);
+                        printf("PODMsg#%d ",ResponseMessageFromPod);
                         //printbit(SubMessage[3],0,2);printbit(SubMessage[4],0,7);printf(" "); //3+8=11bits   
                         int SumTable=((SubMessage[3]&0x3)<<8)|SubMessage[4];
-                        printf("sum table(*10):%d ",SumTable*10);
-                        
+
+                        //printf("sum table(*10):%d ",SumTable*10);
+                        printf("Insulin not delivered:%fu",SumTable*0.05);
+                        printf(" ");
                
                         //dword:1 bit (indicates event 0x14 was logged) 8 bits (internal value) 13 bits Pod time active (Tab1[1]) 10 bits Reservoir level (Tab1[0])
                         printf("Event14:");printbit(SubMessage[5],7,7);printf(" ");
-                        printf("Internal value:");printbit(SubMessage[5],0,6);printbit(SubMessage[6],7,7);printf(" ");//7bits+1bits
+                        printf("Alert:");
+                        //printbit(SubMessage[5],0,6);printbit(SubMessage[6],7,7);printf(" ");//7bits+1bits
+                        int InternalValue=((SubMessage[5]&0x3F)<<1)|(SubMessage[6]>>7);
+                        switch(InternalValue)
+                        {
+                              case 0x8:printf("Perim soon");break;
+                              case 0x80:printf("Replace POD");break;  
+                              case 0x82:printf("Replace PODEx");break;    
+                              case 0:printf("Normal");break;
+                              default:printf("Unknown x%x",InternalValue);break;
+                        }
+                        printf(" ");    
                         //printf("Tab1[1]:%04x",((SubMessage[6]&0x7F)<<6)|((SubMessage[7]>>2)&0x3F));printf(" "); //Minutes actives
-                        printf("Minutes Actives %d",((SubMessage[6]&0x7F)<<6)|((SubMessage[7]>>2))&0x3F);printf(" ");//7+6  
+                        int MinutesActives=((SubMessage[6]&0x7F)<<6)|((SubMessage[7]>>2)&0x3F);
+                        int Days=MinutesActives/60/24;
+                        int Hours=(MinutesActives-Days*60*24)/60;
+                        int Minutes=(MinutesActives-Days*60*24-Hours*60);
+                        printf("POD Active for %d days %d hours %d minutes",Days,Hours,Minutes);printf(" ");//7+6  
                         int Reservoir=(((SubMessage[7]&0x03)<<8)+(SubMessage[8]));
                         if((Reservoir&0xFF)!=0xFF)
                             printf("Reservoir Level %0.01fU",(((SubMessage[7]&0x03)<<8)|(SubMessage[8]))*50.0/1024.0);  
@@ -1548,7 +1579,8 @@ int ProcessRF()
            
              bytes_read = fread(iq_buffer, 1, k*2, iqfile);
             if((bytes_read>0)&&(DebugIQ!=NULL)) fwrite(iq_buffer,1,bytes_read,DebugIQ);
-           if (bytes_read > 0)
+            
+           if (bytes_read ==k*2)
            {
                 
                 //printf("Byte read=%d\n",bytes_read);
@@ -1697,14 +1729,31 @@ Usage:rtlomni -i File [-l LotID] [-t Tid][-c][-h] \n\
 -c            Colorize messages \n\
 -d            Write copy of input RF packet(debug.cu8) \n\
 -h            help (print this help).\n\
-Example : .\\rtlomni -i omniup325.cu8 for reading a capture file from rtlsdr\n\
-Example : .\\rtlomni -i badcrc.txt for reading a capture file from rfcat\n\
+Example : ./rtlomni -i omniup325.cu8 for reading a capture file from rtlsdr\n\
+Example : ./rtlomni -i badcrc.txt for reading a capture file from rfcat\n\
 \n", \
 PROGRAM_VERSION);
 
 } /* end function print_usage */
-  
 
+
+int keep_running=1;
+  
+static void signal_handler(int signo)
+{
+    if (signo == SIGINT)
+        fputs("\nCaught SIGINT\n", stderr);
+    else if (signo == SIGTERM)
+        fputs("\nCaught SIGTERM\n", stderr);
+    else if (signo == SIGHUP)
+        fputs("\nCaught SIGHUP\n", stderr);
+    else if (signo == SIGPIPE)
+        fputs("\nReceived SIGPIPE.\n", stderr);
+    else
+        fprintf(stderr, "\nCaught signal: %d\n", signo);
+   
+    keep_running = 0;
+}
 
 int main(int argc, char*argv[])
 {
@@ -1723,6 +1772,15 @@ int main(int argc, char*argv[])
     char inputname[255];
     strcpy(inputname,"omniup325.cu8");
 
+// register signal handlers
+    if (signal(SIGINT, signal_handler) == SIG_ERR)
+        fputs("Warning: Can not install signal handler for SIGINT\n", stderr);
+    if (signal(SIGTERM, signal_handler) == SIG_ERR)
+        fputs("Warning: Can not install signal handler for SIGTERM\n", stderr);
+    if (signal(SIGHUP, signal_handler) == SIG_ERR)
+        fputs("Warning: Can not install signal handler for SIGHUP\n", stderr);
+    if (signal(SIGPIPE, signal_handler) == SIG_ERR)
+        fputs("Warning: Can not install signal handler for SIGPIPE\n", stderr);
 
 
  while (1)
@@ -1745,7 +1803,7 @@ int main(int argc, char*argv[])
 			mlot=atol(optarg);
 			break;
         case 't': // Tid
-			 mtid=atol(argv[3]);
+			 mtid=atol(optarg);
 			break; 
         case 'c': // Colorize message
 			 colorize=1;
@@ -1762,11 +1820,11 @@ int main(int argc, char*argv[])
 		case '?':
 			if (isprint(optopt))
 			{
-				fprintf(stderr, "kisspectrum `-%c'.\n", optopt);
+				fprintf(stderr, "rtlomni `-%c'.\n", optopt);
 			}
 			else
 			{
-				fprintf(stderr, "kisspectrum: unknown option character `\\x%x'.\n", optopt);
+				fprintf(stderr, "rtlomni: unknown option character `\\x%x'.\n", optopt);
 			}
 			print_usage();
 
@@ -1838,7 +1896,7 @@ if(ModeInput==IQFILE)
     GlobalMessageSequence=0;
     //TxGetStatus(GlobalAddress,0);
     //TxPause(1000);
-    while(1)
+    while(keep_running)
     {
         int Result=ProcessRF();
         if(Result==2) ParsePacket(0); 
