@@ -87,6 +87,7 @@ FILE *DebugFM=NULL;
 
 int ActualSEQ=-1;  
 int colorize=0;
+int debugfileiq=0;
 
 #define ANSI_COLOR_RED     "\x1b[31m"
 #define ANSI_COLOR_GREEN   "\x1b[32m"
@@ -1624,7 +1625,7 @@ int ProcessRF()
                         if(Manchester>=0)
                         {
                                 unsigned char ManchesterByte=Manchester; 
-                                fwrite(&ManchesterByte,1,1,ManchesterFile);
+                                //fwrite(&ManchesterByte,1,1,ManchesterFile);
                                 AddData(Manchester);
                                 
                         }
@@ -1694,6 +1695,7 @@ Usage:rtlomni -i File [-l LotID] [-t Tid][-c][-h] \n\
 -l            LotID \n\
 -t            Tide \n\
 -c            Colorize messages \n\
+-d            Write copy of input RF packet(debug.cu8) \n\
 -h            help (print this help).\n\
 Example : .\\rtlomni -i omniup325.cu8 for reading a capture file from rtlsdr\n\
 Example : .\\rtlomni -i badcrc.txt for reading a capture file from rfcat\n\
@@ -1725,7 +1727,7 @@ int main(int argc, char*argv[])
 
  while (1)
 	{
-		a = getopt(argc, argv, "i:l:t:ch");
+		a = getopt(argc, argv, "i:l:t:cdh");
 
 		if (a == -1)
 		{
@@ -1747,7 +1749,10 @@ int main(int argc, char*argv[])
 			break; 
         case 'c': // Colorize message
 			 colorize=1;
-			break;     
+			break;    
+         case 'd': // Colorize message
+			 debugfileiq=1;
+			break;      
 		case 'h': // help
 			print_usage();
 			exit(0);
@@ -1784,7 +1789,7 @@ int main(int argc, char*argv[])
                 char ManchesterFileName[255];
                 strcpy(ManchesterFileName,inputname);
                 strcat(ManchesterFileName,".man");
-                ManchesterFile=fopen(ManchesterFileName, "wb");
+                //ManchesterFile=fopen(ManchesterFileName, "wb");
                 ModeInput=IQFILE;
             }
             else
@@ -1809,12 +1814,14 @@ int main(int argc, char*argv[])
     // *****************************************************************************
 if(ModeInput==IQFILE)
 {
-    if(strcmp(inputname,"debug.cu8")!=0) 
+    if(debugfileiq)
     {
-        DebugIQ = fopen ("debug.cu8", "wb");
-        if(DebugIQ==NULL) {printf("Error opeing output file\n");exit(0);}
+        if(strcmp(inputname,"debug.cu8")!=0) 
+        {
+            DebugIQ = fopen ("debug.cu8", "wb");
+            if(DebugIQ==NULL) {printf("Error opeing output file\n");exit(0);}
+        }
     }
-
       #ifdef DEBUG_FM
       DebugFM = fopen ("debugfm.cf32", "wb");
       #endif  
