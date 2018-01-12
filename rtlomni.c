@@ -1164,66 +1164,8 @@ void ParseSubMessage(int Seq,int Source,unsigned char *Message,int Length,int Se
 //***************************************************************************************************
  
 
-/*typedef struct TxPacketRF
-{
-    unsigned char PacketBufferRF[MAX_BYTE_PER_PACKET];
-    unsigned int PhysicaAddress;
-    unsigned char Type;
-    unsigned char Sequence;
-    int PacketLength;
-} TxPacketRF;
-*/
-void PutTraceMessage(TxPacketRF *PacketRF)
-{
-    char bufferDate[26];
-    struct tm* tm_info;
- int  millisec;  
-  struct timeval tv;
- millisec = lrint(tv.tv_usec/1000.0); // Round to nearest millisec
-  if (millisec>=1000) { // Allow for rounding up to nearest second
-    millisec -=1000;
-    tv.tv_sec++;
-  }
 
-     gettimeofday(&tv, NULL);
-    tm_info = localtime(&tv.tv_sec);
-    strftime(bufferDate, 26, "%Y-%m-%dT%H:%M:%S.%03d ", tm_info);
-    fprintf(RfcatFile,"%s",bufferDate);
-    fprintf(RfcatFile,"ID1:%x ",PacketRF->PhysicaAddress);
-    fprintf(RfcatFile,"PTYPE:");
-    switch(PacketRF->Type)
-    {
-       case PDM:fprintf(RfcatFile,"PDM");break;
-       case POD:fprintf(RfcatFile,"POD");break;
-       case ACK:fprintf(RfcatFile,"ACK");break;
-       case CON:fprintf(RfcatFile,"CON");break;
-       default:fprintf(RfcatFile,"UNKOWN");break;         
-    }
-    fprintf(RfcatFile," SEQ:%02d ",PacketRF->Sequence);
-    
-    if(PacketRF->Type!=CON)
-    {
-        fprintf(RfcatFile,"ID2:%02x%02x%02x%02x",PacketRF->PacketBufferRF[5],PacketRF->PacketBufferRF[6],PacketRF->PacketBufferRF[7],PacketRF->PacketBufferRF[8]);
-    }
-    
-    
-    if(((PacketRF->Type==PDM)||(PacketRF->Type==POD))&&(PacketRF->PacketLength>11)) 
-    {   
-        fprintf(RfcatFile," B9:%02x",PacketRF->PacketBufferRF[9]);
-        fprintf(RfcatFile," BLEN:%d ",(PacketRF->PacketBufferRF[10]));
-        fprintf(RfcatFile,"BODY:");
-        for(int i=11;i<PacketRF->PacketLength-1;i++)
-            fprintf(RfcatFile,"%02x",PacketRF->PacketBufferRF[i]);       
-    }
-    if(PacketRF->Type==CON)
-    {
-        fprintf(RfcatFile," BODY:");
-        for(int i=5;i<PacketRF->PacketLength-1;i++) fprintf(RfcatFile,"%02x",BufferData[i]);
-    }
-    fprintf(RfcatFile," CRC:%02x",PacketRF->PacketBufferRF[PacketRF->PacketLength-1]);
-        fprintf(RfcatFile,"\n");
-    
-}
+
 
 
 
@@ -1313,7 +1255,65 @@ void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMes
 //***************************************************************************************************
 //*********************************** PACKET LAYER ******************************************************
 //***************************************************************************************************
+void PutRfCatMessage(unsigned char*Buffer,int Length)  
+{
+    if(Length<6) return ;
 
+    char bufferDate[26];
+    struct tm* tm_info;
+ int  millisec;  
+  struct timeval tv;
+ millisec = lrint(tv.tv_usec/1000.0); // Round to nearest millisec
+  if (millisec>=1000) { // Allow for rounding up to nearest second
+    millisec -=1000;
+    tv.tv_sec++;
+  }
+
+     gettimeofday(&tv, NULL);
+    tm_info = localtime(&tv.tv_sec);
+    strftime(bufferDate, 26, "%Y-%m-%dT%H:%M:%S.%03d ", tm_info);
+    fprintf(RfcatFile,"%s",bufferDate);
+
+    int PacketType=(Buffer[4]>>5);
+ 
+   
+    fprintf(RfcatFile,"ID1:%02x%02x%02x%02x ",Buffer[0],Buffer[1],Buffer[2],Buffer[3]);
+    
+    fprintf(RfcatFile,"PTYPE:");
+    switch(PacketType)
+    {
+       case PDM:fprintf(RfcatFile,"PDM");break;
+       case POD:fprintf(RfcatFile,"POD");break;
+       case ACK:fprintf(RfcatFile,"ACK");break;
+       case CON:fprintf(RfcatFile,"CON");break;
+       default:fprintf(RfcatFile,"UNKOWN");break;         
+    }
+    int Seq=Buffer[4]&0x1F;
+    fprintf(RfcatFile," SEQ:%02d ",Seq);
+    
+    if(PacketType!=CON)
+    {
+        fprintf(RfcatFile,"ID2:%02x%02x%02x%02x",Buffer[5],Buffer[6],Buffer[7],Buffer[8]);
+    }
+    
+    
+    if(((PacketType==PDM)||(PacketType==POD))&&(Length>11)) 
+    {   
+        fprintf(RfcatFile," B9:%02x",Buffer[9]);
+        fprintf(RfcatFile," BLEN:%d ",(Buffer[10]));
+        fprintf(RfcatFile,"BODY:");
+        for(int i=11;i<Length-1;i++)
+            fprintf(RfcatFile,"%02x",Buffer[i]);       
+    }
+    if(PacketType==CON)
+    {
+        fprintf(RfcatFile," BODY:");
+        for(int i=5;i<Length-1;i++) fprintf(RfcatFile,"%02x",Buffer[i]);
+    }
+    fprintf(RfcatFile," CRC:%02x",Buffer[Length-1]);
+        fprintf(RfcatFile,"\n");
+    
+}
 
 
 
@@ -1989,8 +1989,8 @@ if(ModeInput==IQFILE)
         int Result=ProcessRF();
         if(Result==2) 
         {
-            TxPacketRF *PacketRF=ParsePacket(0); 
-             if(PacketRF!=NULL) PutTraceMessage(PacketRF);  
+            ParsePacket(0); 
+            PutRfCatMessage(BufferData,IndexData);  
         }
         if(Result==0) break;       
     } 
