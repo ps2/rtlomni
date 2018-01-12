@@ -39,6 +39,8 @@ Licence :
 #include <stdio.h>
 #include <ctype.h>
 #include <signal.h>
+#include <sys/time.h>
+#include <time.h>
 #include <liquid/liquid.h>
 
 
@@ -80,6 +82,7 @@ int IndexData=0;
 FILE* iqfile=NULL;
 FILE *DebugIQ=NULL; 
 FILE *ManchesterFile=NULL;
+FILE *RfcatFile=NULL; //Rfcat out
 #ifdef DEBUG_FM
 FILE *DebugFM=NULL; 
 #endif
@@ -1161,9 +1164,66 @@ void ParseSubMessage(int Seq,int Source,unsigned char *Message,int Length,int Se
 //***************************************************************************************************
  
 
+/*typedef struct TxPacketRF
+{
+    unsigned char PacketBufferRF[MAX_BYTE_PER_PACKET];
+    unsigned int PhysicaAddress;
+    unsigned char Type;
+    unsigned char Sequence;
+    int PacketLength;
+} TxPacketRF;
+*/
+void PutTraceMessage(TxPacketRF *PacketRF)
+{
+    char bufferDate[26];
+    struct tm* tm_info;
+ int  millisec;  
+  struct timeval tv;
+ millisec = lrint(tv.tv_usec/1000.0); // Round to nearest millisec
+  if (millisec>=1000) { // Allow for rounding up to nearest second
+    millisec -=1000;
+    tv.tv_sec++;
+  }
 
-
-
+     gettimeofday(&tv, NULL);
+    tm_info = localtime(&tv.tv_sec);
+    strftime(bufferDate, 26, "%Y-%m-%dT%H:%M:%S.%03d ", tm_info);
+    fprintf(RfcatFile,"%s",bufferDate);
+    fprintf(RfcatFile,"ID1:%x ",PacketRF->PhysicaAddress);
+    fprintf(RfcatFile,"PTYPE:");
+    switch(PacketRF->Type)
+    {
+       case PDM:fprintf(RfcatFile,"PDM");break;
+       case POD:fprintf(RfcatFile,"POD");break;
+       case ACK:fprintf(RfcatFile,"ACK");break;
+       case CON:fprintf(RfcatFile,"CON");break;
+       default:fprintf(RfcatFile,"UNKOWN");break;         
+    }
+    fprintf(RfcatFile," SEQ:%02d ",PacketRF->Sequence);
+    
+    if(PacketRF->Type!=CON)
+    {
+        fprintf(RfcatFile,"ID2:%02x%02x%02x%02x",PacketRF->PacketBufferRF[5],PacketRF->PacketBufferRF[6],PacketRF->PacketBufferRF[7],PacketRF->PacketBufferRF[8]);
+    }
+    
+    
+    if(((PacketRF->Type==PDM)||(PacketRF->Type==POD))&&(PacketRF->PacketLength>11)) 
+    {   
+        fprintf(RfcatFile," B9:%02x",PacketRF->PacketBufferRF[9]);
+        fprintf(RfcatFile," BLEN:%d ",(PacketRF->PacketBufferRF[10]));
+        fprintf(RfcatFile,"BODY:");
+        for(int i=11;i<PacketRF->PacketLength-1;i++)
+            fprintf(RfcatFile,"%02x",PacketRF->PacketBufferRF[i]);       
+    }
+    if(PacketRF->Type==CON)
+    {
+        fprintf(RfcatFile," BODY:");
+        for(int i=5;i<PacketRF->PacketLength-1;i++) fprintf(RfcatFile,"%02x",BufferData[i]);
+    }
+    fprintf(RfcatFile," CRC:%02x",PacketRF->PacketBufferRF[PacketRF->PacketLength-1]);
+        fprintf(RfcatFile,"\n");
+    
+}
 
 
 
@@ -1176,7 +1236,9 @@ void AddMessage(int Seq,int Source,unsigned char*Packet,int Length,int TargetMes
     static int MessageLength=0;
     static int LastSource=0;
     static int MemSeqMessage=-1;
+    
     if(SeqMessage!=-1) MemSeqMessage=SeqMessage;
+    
     #ifdef DEBUG_PACKET
     if(Source==ACK) 
     {
@@ -1294,6 +1356,10 @@ TxPacketRF * ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
     int Seq=BufferData[4]&0x1F;
     PacketRF.Sequence=Seq;
     PacketRF.PhysicaAddress=(BufferData[0]<<24)|(BufferData[1]<<16)|(BufferData[2]<<8)|(BufferData[3]);
+    PacketRF.PacketLength=IndexData;
+    if(PacketRF.PacketLength>MAX_BYTE_PER_PACKET) PacketRF.PacketLength=MAX_BYTE_PER_PACKET;
+    memcpy(PacketRF.PacketBufferRF,BufferData,PacketRF.PacketLength);
+    
      #ifdef DEBUG_PACKET    
     printf("New packet type %x with %d length : ",PacketType,IndexData);   for(int i=0;i<IndexData;i++) printf("%02x",BufferData[i]); printf("\n");
     #endif
@@ -1415,7 +1481,8 @@ TxPacketRF * ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
             printf("---------------- MISS ONE PACKET (%d/%d)------------------\n",Seq,ActualSEQ);
         }
          ActualSEQ=Seq;
-    }    
+    }  
+   
     return &PacketRF;
        
 }
@@ -1428,14 +1495,14 @@ TxPacketRF * ParsePacket(unsigned int TimePacket) //TimePacket is in millisecond
 void AddData(unsigned char DataValue)
 {
    
- 
+    //printf("\nIndexdata%d->%x:%x\n",IndexData,DataValue^0xFF,DataValue);
     if((IndexData==0)&&DataValue==0x54) {/*printf("[");*/return;} //Skip SYNC BYTE : 0x54 is No t inverted
     if((IndexData==0)&&DataValue==0xC3) {/*printf("_");*/return;} //Skip 2SYNC BYTE : C3 is not inverted
     if(IndexData<MAXPACKETLENGTH)
         BufferData[IndexData++]=DataValue^0xFF;
     else
         printf("Packet too long !!!\n");
-    //printf("\n%x:%x\n",DataValue^0xFF,DataValue);
+    
 }
 
 int ManchesterAdd(int BitValue)	
@@ -1547,6 +1614,7 @@ int GetFSKSync(unsigned char Sym)
     msresamp2_crcf MyDecim;
     fskdem dem;
     freqdem fdem;
+    
 void InitRF(void)
 {    
     float FSKDeviationHz=26296.0;//26370.0; //Inspectrum show +/-20KHZ ?    
@@ -1572,6 +1640,7 @@ void InitRF(void)
     // modulate, demodulate, count errors
     fdem=freqdem_create(27000.0*2*4/IQSR);
     
+    
       
 }
 
@@ -1584,7 +1653,7 @@ int ProcessRF()
             static unsigned int SampleTime=0; 
              int bytes_read=0;
               static  int Lock=-1;
-           
+           float resultautocor=0;
              bytes_read = fread(iq_buffer, 1, k*2, iqfile);
             if((bytes_read>0)&&(DebugIQ!=NULL)) fwrite(iq_buffer,1,bytes_read,DebugIQ);
             
@@ -1624,12 +1693,8 @@ int ProcessRF()
                     
                     float re=crealf(buf_rx2[i]);//printf("%f+i)",re);
                     float im=cimagf(buf_rx2[i]);//printf("%f\n",im);
-                    //  if(agc_crcf_get_rssi(MyAGC)>-20)
-                    
-                    {
-                        //fwrite(&re,sizeof(float),1,DebugIQ);
-                        //fwrite(&im,sizeof(float),1,DebugIQ);
-                    }
+                   
+
 
                 }
                 static int FMState=0;
@@ -1646,10 +1711,10 @@ int ProcessRF()
                     
                     if(SampleFromLastTransition>(k/4+2)) {Sym[NbSymbol++]=FMState;SampleFromLastTransition=0;} 
                 }
-                 
+                
                 if((NbSymbol>2)||(NbSymbol==0)) return 1;/* else printf("%d",NbSymbol);*/// More than 2 transition is surely noise    
                 
-                 //sym_out = fskdem_demodulate(dem, buf_rx2);
+                // sym_out = fskdem_demodulate(dem, buf_rx2);
                 //NbSymbol=1;Sym[0]=sym_out;
                 for(int i=0;i<NbSymbol;i++)
                 {
@@ -1696,10 +1761,13 @@ int ProcessRF()
                     //if(FSKSyncStatus!=1)
                     {
                         int InTimeSync=GetFSKSync(Sym[i]);
-                        switch(InTimeSync)
+                        if(FSKSyncStatus==0)
                         {
-                            case FSK_SYNC_ON: FSKSyncStatus=1; IndexData=0;break;
-                            case FSK_SYNC_OFF:FSKSyncStatus=0;break;
+                            switch(InTimeSync)
+                            {
+                                case FSK_SYNC_ON: FSKSyncStatus=1; IndexData=0;break;
+                                case FSK_SYNC_OFF:FSKSyncStatus=0;break;
+                            }
                         }
                     }
                 }    
@@ -1873,26 +1941,38 @@ int main(int argc, char*argv[])
    // InitNounce(43080,420590,0);//2/11- 5/11
     //InitNounce(43205,1021187,0);//5/11- 8/11
      InitNounce(mlot,mtid,0);   
-     fprintf(stderr,"Parse with Lot %ld Tid %ld\n",mlot,mtid); 
+     printf("Parse with Lot %ld Tid %ld\n",mlot,mtid); 
 
     // *****************************************************************************
     // ******************* IQ FILE PROCESSING **************************************
     // *****************************************************************************
 if(ModeInput==IQFILE)
 {
-    if(debugfileiq)
-    {
-        if(strcmp(inputname,"debug.cu8")!=0) 
+    
+           char bufferDate[255];
+           char NameRfCat[255]; 
+           struct tm* tm_info;
+           struct timeval tv;
+         
+            gettimeofday(&tv, NULL);
+            tm_info = localtime(&tv.tv_sec);
+            strftime(bufferDate, 26, "%Y-%m-%dT%Hh%Mm%S", tm_info);
+            strcpy(NameRfCat,bufferDate);
+            strcat(NameRfCat,".omni");
+            RfcatFile=fopen(NameRfCat,"w");
+             if(RfcatFile==NULL) {printf("Error opeing output file\n");exit(0);}
+        if(debugfileiq)
         {
-            DebugIQ = fopen ("debug.cu8", "wb");
+            strcat(bufferDate,".cu8");
+            DebugIQ = fopen (bufferDate, "wb");
             if(DebugIQ==NULL) {printf("Error opeing output file\n");exit(0);}
         }
-    }
+   
       #ifdef DEBUG_FM
       DebugFM = fopen ("debugfm.cf32", "wb");
       #endif  
     
-    fprintf(stderr,"Read I/Q from %s file\n",inputname);
+    printf("Read I/Q from %s file\n",inputname);
 
 
    
@@ -1907,7 +1987,11 @@ if(ModeInput==IQFILE)
     while(keep_running)
     {
         int Result=ProcessRF();
-        if(Result==2) ParsePacket(0); 
+        if(Result==2) 
+        {
+            TxPacketRF *PacketRF=ParsePacket(0); 
+             if(PacketRF!=NULL) PutTraceMessage(PacketRF);  
+        }
         if(Result==0) break;       
     } 
     
@@ -1924,7 +2008,7 @@ if(ModeInput==TRACEFILE)
     fp = fopen(inputname , "r");
      if(fp == NULL) {
       perror("Error opening file\n");
-      
+      exit(0);
    }       
 
    while( fgets (OneLine, 500, fp)!=NULL )
@@ -2080,7 +2164,7 @@ if(ModeInput==TRACEFILE)
                     {
                         sscanf(token,"CRC:%x",&crc);
                         BufferData[IndexData++]=crc;
-                        printf("\n CRC %02x\n",crc);
+                        //printf("\n CRC %02x\n",crc);
                     }
                    
                   
