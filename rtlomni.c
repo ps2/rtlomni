@@ -753,7 +753,9 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
 {
     const char *TypeInsulin[]={"Basal","Temp Basal","Bolus","All","All","All","All","All","All"};
 
-   
+   //enum {Cmd_GetConfig=3,Cmd_Pairing=7,Cmd_GetStatus=0xe,Cmd_BasalScheduleExtra=0x13,Cmd_InsulinScheduleExtra=0x17,Cmd_SyncTime=0x19,Cmd_InsulinSchedule=0x1a,Cmd_CancelBolus=0x1F,Cmd_CancelPOD=0x1C,Cmd_Diagnose=0x1E};
+   // enum {Resp_Status=0x1D,Resp_Tid=0x01,Resp02=0x02,RespError=0x06};
+      
     if(Source==POD)
     {    
         
@@ -1099,6 +1101,14 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                     //printf("Seed %d Index %d",
                 }
                 break;
+                //0079 1f00ee84 1f00ee84 fe00fe00ffffffffffff0000ffffffffffffffffffffffff010b120e1f0000a8fe000927f90000ffffffffffffff32cd50af0ff014eb01fe01fe06f9ff00ff0002fd649b14eb14eb07f83cc332cd05fa02fd58a700fffffffffffffffffffffffffffffffffffffffffffffffff
+                case 0x46:
+                {
+                    printf("ID1=%x%x%x%x ",SubMessage[2],SubMessage[3],SubMessage[4],SubMessage[5]);
+                    printf("ID2=%x%x%x%x ",SubMessage[6],SubMessage[7],SubMessage[8],SubMessage[9]);
+
+                }
+                break;
              }   
                 
         }
@@ -1263,6 +1273,7 @@ void PutRfCatMessage(unsigned char*Buffer,int Length)
     struct tm* tm_info;
  int  millisec;  
   struct timeval tv;
+  tv.tv_usec=0;      
  millisec = lrint(tv.tv_usec/1000.0); // Round to nearest millisec
   if (millisec>=1000) { // Allow for rounding up to nearest second
     millisec -=1000;
@@ -1722,7 +1733,7 @@ int ProcessRF()
                     
                      //sym_out=(sym_out==0)?1:0;
 
-                    if((FSKSyncStatus==1))
+                    if(FSKSyncStatus==1)
                     {
                         
                         int Manchester=ManchesterAdd(Sym[i]);
