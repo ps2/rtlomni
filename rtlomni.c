@@ -1041,6 +1041,18 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
         {
             printf("Resp02:");
             for(int i=0;i<Length;i++) printf("%02x",SubMessage[i]);
+            /*
+             //0079 1f00ee84 1f00ee84 fe00fe00ffffffffffff0000 ffffffffffffffffffffffff (35)010b120e1f 0000a8fe 000927f9 0000ffffffffffffff32cd50af0ff014eb01fe01fe06f9ff00ff0002fd649b14eb14eb07f83cc332cd05fa02fd58a700fffffffffffffffffffffffffffffffffffffffffffffffff
+                case 0x46:
+                {
+                    printf("ID1=%x%x%x%x ",SubMessage[2],SubMessage[3],SubMessage[4],SubMessage[5]);
+                    printf("ID2=%x%x%x%x ",SubMessage[6],SubMessage[7],SubMessage[8],SubMessage[9]);
+                    unsigned long Lot=(((unsigned long)SubMessage[40])<<24)|(((unsigned long)SubMessage[41])<<16)|(((unsigned long)SubMessage[42])<<8)|(((unsigned long)SubMessage[43]));
+                    unsigned long Tid=(((unsigned long)SubMessage[44])<<24)|(((unsigned long)SubMessage[45])<<16)|(((unsigned long)SubMessage[46])<<8)|(((unsigned long)SubMessage[47])); 
+                    printf("LotID=%ld Tid=%ld",Lot,Tid);
+                }
+                break;
+            */
         }
         break;
         case RespError:
@@ -1101,14 +1113,7 @@ void InterpretSubMessage(int Source,int Type,unsigned char *SubMessage,int Lengt
                     //printf("Seed %d Index %d",
                 }
                 break;
-                //0079 1f00ee84 1f00ee84 fe00fe00ffffffffffff0000ffffffffffffffffffffffff010b120e1f0000a8fe000927f90000ffffffffffffff32cd50af0ff014eb01fe01fe06f9ff00ff0002fd649b14eb14eb07f83cc332cd05fa02fd58a700fffffffffffffffffffffffffffffffffffffffffffffffff
-                case 0x46:
-                {
-                    printf("ID1=%x%x%x%x ",SubMessage[2],SubMessage[3],SubMessage[4],SubMessage[5]);
-                    printf("ID2=%x%x%x%x ",SubMessage[6],SubMessage[7],SubMessage[8],SubMessage[9]);
-
-                }
-                break;
+               
              }   
                 
         }
@@ -1318,7 +1323,7 @@ void PutRfCatMessage(unsigned char*Buffer,int Length)
     }
     if(PacketType==CON)
     {
-        fprintf(RfcatFile," BODY:");
+        fprintf(RfcatFile,"CON:");
         for(int i=5;i<Length-1;i++) fprintf(RfcatFile,"%02x",Buffer[i]);
     }
     fprintf(RfcatFile," CRC:%02x",Buffer[Length-1]);
